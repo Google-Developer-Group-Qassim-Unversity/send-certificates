@@ -15,12 +15,13 @@ import io
 import time
 load_dotenv()
 
-EVENT_NAME = "معسكر Machine Learning"
-ANNOUNCED_EVENT_NAME = "معسكر Machine Learning"
-DATE = "21/10/2025 - 23/10/2025"
+EVENT_NAME = "معسكر رؤية الحاسب من كاوست"
+ANNOUNCED_EVENT_NAME = "معسكر رؤية الحاسب من كاوست"
+DATE = "04/11/2025-06/11/2025"
+DATA_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSXh9S1AoUGgr2QAwJ1pBjBsY_USsZR2xyaZorT2auDfTMExNultaGtJeCXThHt7hxQaG726NIKF0sx/pub?gid=0&single=true&output=csv"
 
-PRESENTATION_FILE_NAME = "certificate (Copy).pptx"
-# PRESENTATION_FILE_NAME = "certificate unofficial.pptx"
+# PRESENTATION_FILE_NAME = "certificate.pptx"
+PRESENTATION_FILE_NAME = "certificate unofficial.pptx"
 
 MAX_RETRIES=3
 EMAIL_DELAY=4
@@ -32,12 +33,10 @@ CONVERSION_EXTENTION = "pdf"
 TEXT_OUTPUT = "output.txt"
 NAME_PLACEHOLDER = "name"
 EVENT_NAME_PLACEHOLDER = "event_name"
-DATE_PLACEHOLDER = "date"
+DATE_PLACEHOLDER = "event_date"
 
 OUTPUT_FOLDER = EVENT_NAME + "-" + "output-files"
 SENDER_EMAIL = "gdg.qu1@gmail.com"
-DATA_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vT2lHv8Th2E2Pq40EKMb1MaGc4C6y58s8bO6aL6eMO27tWP0Fhj6nyoaY2ruvbnDMo5pGsIQdRl_D_L/pub?gid=1781104695&single=true&output=csv" # Test Sheet
-# DATA_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS4q-5aDFZonoAi88_FXP0VR47Dwqi9t9ZbEP3xm3eBiyKAG_7dBe7vcXtcl_pHoNU6m5C-cfmFX2ql/pub?gid=0&single=true&output=csv"
 
 if system() == "Windows":
     libreoffice  = r"C:\Program Files\LibreOffice\program\soffice.exe"
@@ -47,22 +46,28 @@ elif system() == "Linux":
 def main():
 
     makedirs(OUTPUT_FOLDER, exist_ok=True)
-    # data = extract_data()
+    data = extract_data()
 
     print("adding some test recipients...")
-    data = [
-        (" عبدالعزيز نشاء طالع المطيري", "alshalhy484@gmail.com"),
-    ]
-    # data.insert(0, ("Test", "gdg.qu1@gmail.com"))
-    # data.insert(len(data)//2, ("مرت على بالي", "albrrak337@gmail.com"))
-    # data.insert(len(data), ("عبدالاله عبدالعزيز منصور البراك", "albrrak773@gmail.com"))
+    data.insert(0, ("Test", "gdg.qu1@gmail.com"))
+    data.insert(len(data)//2, ("مرت على بالي", "albrrak337@gmail.com"))
+    data.insert(len(data), ("عبدالاله عبدالعزيز منصور البراك", "albrrak773@gmail.com"))
     i = 1
+
     for name, email in data:
         print(f"-----------Sending [{i}/{len(data)}]-----------")
         output_file_name = replace_placeholder(name=name, output_prs_file_name=name + "-" + OUTPUT_PRESENATION_FILE_NAME)
         output_pdf = pptx_to_pdf(input_pptx_file_name=output_file_name, output_pdf_file_name=Path().joinpath(OUTPUT_FOLDER, name + "-" + OUTPUT_FILE_NAME))
-        # send_email(recipient=email, attachment_file_name=output_pdf, name=name)
+        send_email(recipient=email, attachment_file_name=output_pdf, name=name)
         i += 1
+
+def test(name: str, email: str | None = None):
+    output_test_file = 'test-output-files'
+    makedirs(output_test_file, exist_ok=True)
+    output_file_name = replace_placeholder(name=name, output_prs_file_name=name + "-" + OUTPUT_PRESENATION_FILE_NAME, output_folder=output_test_file)
+    output_pdf = pptx_to_pdf(input_pptx_file_name=output_file_name, output_pdf_file_name=Path().joinpath(output_test_file, name + "-" + OUTPUT_FILE_NAME), output_folder=output_test_file)
+    if email:
+        send_email(recipient=email, attachment_file_name=output_pdf, name=name)
 
 
 def extract_data(url = DATA_URL):
@@ -89,7 +94,7 @@ def extract_data(url = DATA_URL):
     print(f"❌ Failed to extract data from Google Sheets after {MAX_RETRIES} attempts.")
     exit(1)
 
-def replace_placeholder(name,prs_file_name = PRESENTATION_FILE_NAME, output_prs_file_name = OUTPUT_PRESENATION_FILE_NAME, event_name = EVENT_NAME, date = DATE):
+def replace_placeholder(name,prs_file_name = PRESENTATION_FILE_NAME, output_prs_file_name = OUTPUT_PRESENATION_FILE_NAME, event_name = EVENT_NAME, date = DATE, output_folder = OUTPUT_FOLDER):
     prs = Presentation(prs_file_name)
     print(f"Replacing placeholders in PPTX file: \x1b[36m'{prs_file_name}'\x1b[0m...")
 
@@ -113,12 +118,12 @@ def replace_placeholder(name,prs_file_name = PRESENTATION_FILE_NAME, output_prs_
                     else:
                         # print(f"Skipping Run: \x1b[31m{run_text}\x1b[0m")
                         pass
-    output = Path(".").joinpath(OUTPUT_FOLDER, output_prs_file_name)
+    output = Path(".").joinpath(output_folder, output_prs_file_name)
     prs.save(output)
     print(f"PPTX output saved successfully ✅ to \x1b[36m'{output}'\x1b[0m")
     return output_prs_file_name
 
-def pptx_to_pdf(input_pptx_file_name: str = OUTPUT_PRESENATION_FILE_NAME, output_pdf_file_name:str = OUTPUT_FILE_NAME):
+def pptx_to_pdf(input_pptx_file_name: str = OUTPUT_PRESENATION_FILE_NAME, output_pdf_file_name:str = OUTPUT_FILE_NAME, output_folder = OUTPUT_FOLDER):
     print(f"Saving As PDF with \x1b[36m'{libreoffice}'\x1b[0m")
     cmd = [
         libreoffice,
@@ -129,7 +134,7 @@ def pptx_to_pdf(input_pptx_file_name: str = OUTPUT_PRESENATION_FILE_NAME, output
         str(output_pdf_file_name)
     ]
     print(f"Running command \x1b[36m'{" ".join(cmd)}'\x1b[0m...")
-    result = subprocess.run(cmd, cwd=Path().joinpath(".", OUTPUT_FOLDER))
+    result = subprocess.run(cmd, cwd=Path().joinpath(".", output_folder), capture_output=True, text=True)
     if result.returncode == 0:
         output = str(output_pdf_file_name) + "." + CONVERSION_EXTENTION
         print(f"command Ran successfully ✅")
@@ -211,4 +216,5 @@ def extract_all_text_from_presentation(prs_file_name = PRESENTATION_FILE_NAME, o
 
 
 if __name__ == "__main__":
-    main()
+    # main()
+    test('عبدالاله البراك')
