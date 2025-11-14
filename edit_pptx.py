@@ -15,10 +15,10 @@ import io
 import time
 load_dotenv()
 
-EVENT_NAME = "معسكر رؤية الحاسب من كاوست"
-ANNOUNCED_EVENT_NAME = "معسكر رؤية الحاسب من كاوست"
-DATE = "04/11/2025-06/11/2025"
-DATA_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSXh9S1AoUGgr2QAwJ1pBjBsY_USsZR2xyaZorT2auDfTMExNultaGtJeCXThHt7hxQaG726NIKF0sx/pub?gid=0&single=true&output=csv"
+EVENT_NAME = "ابدأ رحلتك في عالم البيانات"
+ANNOUNCED_EVENT_NAME = "ابدأ رحلتك في عالم البيانات"
+DATE = "10/11/2025"
+DATA_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTNkFQDQN94UZLJ7st0CLU21bx7sGne3s8jf4x2XEvgy98XEzC_5365-qSXLYw8A5WbnAq4nu15B6k9/pub?gid=0&single=true&output=csv"
 
 # PRESENTATION_FILE_NAME = "certificate.pptx"
 PRESENTATION_FILE_NAME = "certificate unofficial.pptx"
@@ -196,6 +196,7 @@ def send_email(recipient: str = "albrrak773@gmail.com", html: str = "", attachme
             time.sleep(EMAIL_DELAY)
     return
 
+
 def extract_all_text_from_presentation(prs_file_name = PRESENTATION_FILE_NAME, output_txt_file_name = TEXT_OUTPUT ):
     # text_runs will be populated with a list of strings,
     # one for each text run in presentation
@@ -216,5 +217,5 @@ def extract_all_text_from_presentation(prs_file_name = PRESENTATION_FILE_NAME, o
 
 
 if __name__ == "__main__":
-    # main()
-    test('عبدالاله البراك')
+    main()
+    # test('عبدالاله البراك')

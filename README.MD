@@ -36,3 +36,9 @@ the test functin will create a `.pptx` certificate and a `.pdf` version and will
 also the script is fairly verbos and will print what its doing as it does it.
 
 ### Which type of certificate to use?
+...
+
+### Technical details
+why not use a single login sesion to send an email?
+> SMTP is a sequential protocol. Multiple commands must be sent to send an email, and they must be sent in the correct sequence. As a consequence of this, executing multiple SMTP.send_message() tasks in parallel (i.e. with asyncio.gather()) is not any more efficient than executing in sequence, as the client must wait until one mail is sent before beginning the next.
+-- *The aiosmtp docs*
