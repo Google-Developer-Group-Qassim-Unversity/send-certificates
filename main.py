@@ -1,3 +1,4 @@
+from datetime import date, timedelta
 import aiosmtplib
 from email.message import EmailMessage
 from fastapi import FastAPI, HTTPException
@@ -27,22 +28,20 @@ async def send_bulk_email(body: sendBulkEmailData):
         # Extract recipient data
         if body.recipient_google_sheet_url:
             data = extract_data(sheets_link=body.recipient_google_sheet_url)
-            print(f"Extracted {len(data)} recipients from Google Sheets.")
-        else:
+        elif body.recipient_uploaded_file_name:
             data = extract_data(uploaded_file_name=body.recipient_uploaded_file_name)
-            print(f"Extracted {len(data)} recipients from uploaded file.")
-        print(f"Preparing to send emails to {len(data)} recipients.")
+        elif body.recipient_data:
+            data = [(recipient.email, recipient.name) for recipient in body.recipient_data]
+        else:
+            raise HTTPException(status_code=400, detail="No recipient data source provided.")
+
         # Single SMTP session for all emails
         sent_emails = []
         tasks = []
         for index, (email, name) in enumerate(data):
             print(f"{'-'*10}\n[{index+1}] Sending email for {email}\n{'-'*10}")
             # Create simple email message
-            message = EmailMessage()
-            message["From"] = SENDER_EMAIL
-            message["To"] = email
-            message["Subject"] = f"[{index+1}] Test Email"
-            message.set_content(f"Hello {name}, this is a test email.")
+            message = create_email_message(email, name, body.event_name, body.start_date, body.end_date, body.official, body.announced_event_name)
             
             task = send_email(message)
             print(f"Created task")
@@ -60,7 +59,6 @@ async def send_bulk_email(body: sendBulkEmailData):
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error sending emails: {str(e)}")
-
 
 def extract_data(sheets_link: HttpUrl | None = None, uploaded_file_name: str | None = None):
     # 1. Load data from Google Sheets or uploaded file
@@ -112,6 +110,56 @@ def extract_data(sheets_link: HttpUrl | None = None, uploaded_file_name: str | N
         name = str(row['name']).strip()
         result.append((email, name))
     return result
+
+def create_email_message(to_email: str, to_name: str, event_name: str, start_date: date, end_date: date, official: bool, announced_event_name: str | None = None):
+    """
+        build an email message given the event data along with the certificate
+    """
+    print(f"Creating email message for \x1b[32m{to_email}\x1b[0m...")
+    message = EmailMessage()
+    message["From"] = SENDER_EMAIL
+    message["To"] = to_email
+    message["Subject"] = f"شهادة حضور {event_name}"
+    message.set_content("This email contains HTML. Please view it in an HTML-compatible client.")
+
+    if official:
+        with open("body.html", 'r', encoding="utf-8") as f:
+            body = f.read()
+    else:
+        with open("body_unofficial.html", 'r', encoding="utf-8") as f:
+            body = f.read()
+            body = body.replace("[Registered Name]", announced_event_name if announced_event_name else "")
+
+    body = body.replace("[Name]", to_name)
+    body = body.replace("[Event Name]", event_name)
+    message.add_alternative(body, subtype='html')
+
+    certificate_path = create_certificate(to_name, event_name, start_date, end_date, official)
+    with open(certificate_path, "rb") as f:
+        pdf = f.read()
+
+    message.add_attachment(
+        pdf,
+        maintype="application",
+        subtype="pdf",
+        filename=f"{event_name} شهادة حضور" + ".pdf"
+    )
+
+    return message
+
+def create_certificate(name:str, event_name: str, start_date: date, end_date: date, official: bool):
+    print(f"Creating certificate for \x1b[32m{name}\x1b[0m, start-date {start_date}...")
+    if start_date - end_date <= timedelta(days=1):
+        date = str(start_date.strftime("%d/%m/%Y"))
+    else:
+        date = f"{start_date.strftime('%d/%m/%Y')} - {end_date.strftime('%d/%m/%Y')}"
+
+    print(f"Replacing placeholders in PPTX for \x1b[32m{name}\x1b[0m...")
+    pptx_path = replace_placeholder(Path(event_name + "-output-files"), name=name, event_name=event_name, date=date, official=official)
+    print(f"PPTX created at \x1b[32m{pptx_path}\x1b[0m, converting to PDF...")
+    pdf_path = pptx_to_pdf(Path(event_name + "-output-files"), name, pptx_path)
+    print(f"PDF created at \x1b[32m{pdf_path}\x1b[0m")
+    return pdf_path
 
 async def send_email(message):
     print(f"Sending email to \x1b[32m{message['To']}\x1b[0m...")

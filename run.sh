@@ -1,0 +1,1 @@
+uv run uvicorn main:app --port 6001 --reload

@@ -1,3 +1,4 @@
+from datetime import date
 from pptx import Presentation
 from pptx.enum.text import PP_ALIGN
 from pprint import pprint
@@ -21,13 +22,14 @@ DATE = "10/11/2025"
 DATA_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTNkFQDQN94UZLJ7st0CLU21bx7sGne3s8jf4x2XEvgy98XEzC_5365-qSXLYw8A5WbnAq4nu15B6k9/pub?gid=0&single=true&output=csv"
 
 # PRESENTATION_FILE_NAME = "certificate.pptx"
-PRESENTATION_FILE_NAME = "certificate unofficial.pptx"
+CERTIFICATE_FILE_NAME = "certificate.pptx"
+UNOFFICIAL_CERTIFICATE_FILE_NAME = "certificate unofficial.pptx"
 
 MAX_RETRIES=3
 EMAIL_DELAY=4
 DELIMITER_START = "<<"
 DELIMITER_END = ">>"
-OUTPUT_PRESENATION_FILE_NAME = "output-certificate.pptx"
+OUTPUT_PRESENATION_POSTFIX = "output-certificate.pptx"
 OUTPUT_FILE_NAME = "output-certificate"
 CONVERSION_EXTENTION = "pdf"
 TEXT_OUTPUT = "output.txt"
@@ -56,7 +58,7 @@ def main():
 
     for name, email in data:
         print(f"-----------Sending [{i}/{len(data)}]-----------")
-        output_file_name = replace_placeholder(name=name, output_prs_file_name=name + "-" + OUTPUT_PRESENATION_FILE_NAME)
+        output_file_name = replace_placeholder(name=name, output_prs_file_name=name + "-" + OUTPUT_PRESENATION_POSTFIX)
         output_pdf = pptx_to_pdf(input_pptx_file_name=output_file_name, output_pdf_file_name=Path().joinpath(OUTPUT_FOLDER, name + "-" + OUTPUT_FILE_NAME))
         send_email(recipient=email, attachment_file_name=output_pdf, name=name)
         i += 1
@@ -64,7 +66,7 @@ def main():
 def test(name: str, email: str | None = None):
     output_test_file = 'test-output-files'
     makedirs(output_test_file, exist_ok=True)
-    output_file_name = replace_placeholder(name=name, output_prs_file_name=name + "-" + OUTPUT_PRESENATION_FILE_NAME, output_folder=output_test_file)
+    output_file_name = replace_placeholder(name=name, output_prs_file_name=name + "-" + OUTPUT_PRESENATION_POSTFIX, output_folder=output_test_file)
     output_pdf = pptx_to_pdf(input_pptx_file_name=output_file_name, output_pdf_file_name=Path().joinpath(output_test_file, name + "-" + OUTPUT_FILE_NAME), output_folder=output_test_file)
     if email:
         send_email(recipient=email, attachment_file_name=output_pdf, name=name)
@@ -94,9 +96,14 @@ def extract_data(url = DATA_URL):
     print(f"❌ Failed to extract data from Google Sheets after {MAX_RETRIES} attempts.")
     exit(1)
 
-def replace_placeholder(name,prs_file_name = PRESENTATION_FILE_NAME, output_prs_file_name = OUTPUT_PRESENATION_FILE_NAME, event_name = EVENT_NAME, date = DATE, output_folder = OUTPUT_FOLDER):
-    prs = Presentation(prs_file_name)
-    print(f"Replacing placeholders in PPTX file: \x1b[36m'{prs_file_name}'\x1b[0m...")
+def replace_placeholder(output_dir: Path, name: str, event_name: str, date: str, official: bool):
+    if official:
+        prs = Presentation(CERTIFICATE_FILE_NAME)
+        print(f"Replacing placeholders in PPTX file: \x1b[36m'{CERTIFICATE_FILE_NAME}'\x1b[0m...")
+    else:
+        prs = Presentation(UNOFFICIAL_CERTIFICATE_FILE_NAME)
+        print(f"Replacing placeholders in PPTX file: \x1b[36m'{UNOFFICIAL_CERTIFICATE_FILE_NAME}'\x1b[0m...")
+
 
     for slide in prs.slides:
         for shape in slide.shapes:
@@ -118,28 +125,30 @@ def replace_placeholder(name,prs_file_name = PRESENTATION_FILE_NAME, output_prs_
                     else:
                         # print(f"Skipping Run: \x1b[31m{run_text}\x1b[0m")
                         pass
-    output = Path(".").joinpath(output_folder, output_prs_file_name)
-    prs.save(output)
-    print(f"PPTX output saved successfully ✅ to \x1b[36m'{output}'\x1b[0m")
-    return output_prs_file_name
+    makedirs(output_dir, exist_ok=True)
+    output_path = Path(".").joinpath(output_dir, name+".pptx")
+    prs.save(output_path)
+    print(f"PPTX output saved successfully ✅ to \x1b[36m'{output_path}'\x1b[0m")
+    return output_path
 
-def pptx_to_pdf(input_pptx_file_name: str = OUTPUT_PRESENATION_FILE_NAME, output_pdf_file_name:str = OUTPUT_FILE_NAME, output_folder = OUTPUT_FOLDER):
+def pptx_to_pdf(output_dir: Path, name: str, pptx_path: str):
     print(f"Saving As PDF with \x1b[36m'{libreoffice}'\x1b[0m")
     cmd = [
         libreoffice,
         "--headless",
         "--convert-to",
-        CONVERSION_EXTENTION,
-        str(input_pptx_file_name),
-        str(output_pdf_file_name)
+        "pdf",
+        "--outdir",
+        f"'{output_dir}'",
+        f"'{pptx_path}'"
     ]
-    print(f"Running command \x1b[36m'{" ".join(cmd)}'\x1b[0m...")
-    result = subprocess.run(cmd, cwd=Path().joinpath(".", output_folder), capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    print(f"Command args: {' '.join(cmd)}")
     if result.returncode == 0:
-        output = str(output_pdf_file_name) + "." + CONVERSION_EXTENTION
+        output = str(name) + ".pdf"
         print(f"command Ran successfully ✅")
         print(f"PDF Output saved to \x1b[36m'{output}'\x1b[0m")
-        return output
+        return Path.joinpath(output_dir, output)
     else:
         print(f"command Failed ❌ with return code \x1b[31m{result.returncode}\x1b[0m \n\x1b[33mstdout\x1b[0m:\n{result.stdout}\n\x1b[33mstderr:\x1b[0m\n{result.stderr}")
         exit(1)
@@ -197,7 +206,7 @@ def send_email(recipient: str = "albrrak773@gmail.com", html: str = "", attachme
     return
 
 
-def extract_all_text_from_presentation(prs_file_name = PRESENTATION_FILE_NAME, output_txt_file_name = TEXT_OUTPUT ):
+def extract_all_text_from_presentation(prs_file_name, output_txt_file_name = TEXT_OUTPUT ):
     # text_runs will be populated with a list of strings,
     # one for each text run in presentation
     prs = Presentation(prs_file_name)
