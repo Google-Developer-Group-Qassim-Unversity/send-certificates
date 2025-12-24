@@ -15,13 +15,13 @@ import io
 import time
 load_dotenv()
 
-EVENT_NAME = "معسكر رؤية الحاسب من كاوست"
-ANNOUNCED_EVENT_NAME = "معسكر رؤية الحاسب من كاوست"
-DATE = "04/11/2025-06/11/2025"
-DATA_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSXh9S1AoUGgr2QAwJ1pBjBsY_USsZR2xyaZorT2auDfTMExNultaGtJeCXThHt7hxQaG726NIKF0sx/pub?gid=0&single=true&output=csv"
+EVENT_NAME = 'معسكر تطوير الالعاب'
+ANNOUNCED_EVENT_NAME = 'معسكر تطوير الالعاب'
+DATE = "16/11/2025 - 20/11/2025"
+DATA_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRAxybFoX-KKm4hlxK-wXJVSXwuh00GgjGDSrXiXmmv-uVBlc8O6_EqKKWXCFueBsYyAKG0F3iMzGeX/pub?gid=2036177285&single=true&output=csv"
 
-# PRESENTATION_FILE_NAME = "certificate.pptx"
-PRESENTATION_FILE_NAME = "certificate unofficial.pptx"
+PRESENTATION_FILE_NAME = "certificate.pptx"
+# PRESENTATION_FILE_NAME = "certificate unofficial.pptx"
 
 MAX_RETRIES=3
 EMAIL_DELAY=4
@@ -64,6 +64,7 @@ def main():
 def test(name: str, email: str | None = None):
     output_test_file = 'test-output-files'
     makedirs(output_test_file, exist_ok=True)
+    extract_data() # call this function to print the count
     output_file_name = replace_placeholder(name=name, output_prs_file_name=name + "-" + OUTPUT_PRESENATION_FILE_NAME, output_folder=output_test_file)
     output_pdf = pptx_to_pdf(input_pptx_file_name=output_file_name, output_pdf_file_name=Path().joinpath(output_test_file, name + "-" + OUTPUT_FILE_NAME), output_folder=output_test_file)
     if email:
@@ -80,11 +81,11 @@ def extract_data(url = DATA_URL):
                 
             # Use csv.DictReader to parse as list of dicts
             csv_reader = csv.DictReader(io.StringIO(csv_text))
-
             data = [(row.get("name"), row.get("email")) for row in csv_reader]
-            if "" in data:
-                print(f"❌ Empty name or email found in the data.")
-                exit(1)
+            for i, (name, email) in enumerate(data):
+                if not name or not email:
+                    print(f"❌ Empty name or email found in the data at row {i+2}. Name: '{name}', Email: '{email}'")
+                    exit(1)
 
             print(f"extracted \x1b[32m{len(data)}\x1b[0m records successfully ✅")
             return data
@@ -217,4 +218,4 @@ def extract_all_text_from_presentation(prs_file_name = PRESENTATION_FILE_NAME, o
 
 if __name__ == "__main__":
     # main()
-    test('عبدالاله البراك')
+    test('ميرال الغنيم ', 'qmiral63@gmail.com')
