@@ -2,3 +2,5 @@
 *output-files
 __pycache__
 .env
+.ruff_cache
+jobs
