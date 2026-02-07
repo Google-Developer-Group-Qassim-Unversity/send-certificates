@@ -21,7 +21,7 @@ DATE = "04/11/2025-06/11/2025"
 DATA_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSXh9S1AoUGgr2QAwJ1pBjBsY_USsZR2xyaZorT2auDfTMExNultaGtJeCXThHt7hxQaG726NIKF0sx/pub?gid=0&single=true&output=csv"
 
 # PRESENTATION_FILE_NAME = "certificate.pptx"
-PRESENTATION_FILE_NAME = "certificate unofficial.pptx"
+PRESENTATION_FILE_NAME = "certificate.pptx"
 
 MAX_RETRIES=3
 EMAIL_DELAY=4
@@ -217,4 +217,4 @@ def extract_all_text_from_presentation(prs_file_name = PRESENTATION_FILE_NAME, o
 
 if __name__ == "__main__":
     # main()
-    test('عبدالاله البراك')
+    test('عبدالاله البراك', "albrrak773@gmail.com")
