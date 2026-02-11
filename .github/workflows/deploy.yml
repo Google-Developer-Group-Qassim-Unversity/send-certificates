@@ -1,0 +1,91 @@
+name: Deploy Certificate API
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Deploy using ssh
+      uses: appleboy/ssh-action@master
+      env:
+        APP_PASSWORD: ${{ secrets.APP_PASSWORD }}
+      with:
+        host: ${{ secrets.HOST }}
+        username: ${{ secrets.USERNAME }}
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        port: 22
+        envs: APP_PASSWORD
+        script: |
+          set -e
+          export PATH="$HOME/.local/bin:$PATH"
+
+          echo "Running Deployment commands...🚀"
+          NAME="certificate-api"
+          TARGET_DIR=~/$NAME
+          BRANCH=main
+          REPO_URL="https://github.com/Google-Developer-Group-Qassim-Unversity/send-certificates.git"
+          PORT=8000
+          PM2_PATH="/home/ubuntu/.nvm/versions/node/v24.12.0/bin/"
+          export PATH="$PM2_PATH:$PATH"
+
+          echo "Cloning new repository..."
+          rm -rf "$TARGET_DIR"
+          git clone --branch $BRANCH "$REPO_URL" "$TARGET_DIR"
+          echo "Deployment Complete ✅."
+          echo "==============================="
+
+          echo "📄 Checking LibreOffice..."
+          if ! command -v soffice >/dev/null 2>&1; then
+              echo "Installing LibreOffice..."
+              sudo apt-get update -qq
+              sudo apt-get install -y libreoffice
+              echo "LibreOffice installed ✅."
+          else
+              echo "LibreOffice already installed ✅."
+          fi
+          echo "==============================="
+
+          echo "Running Build commands...🚀"
+          cd "$TARGET_DIR"
+
+          echo "🥷 Setting up environment variables..."
+          if [ -z "$APP_PASSWORD" ]; then
+              echo "❗ APP_PASSWORD is not set. Exiting..."
+              exit 1
+          fi
+
+          echo "ENVIRONMENT=production" > .env
+          echo "APP_PASSWORD=$APP_PASSWORD" >> .env
+
+          if ! command -v uv >/dev/null 2>&1; then
+              echo "☀️ Installing uv..."
+              curl -LsSf https://astral.sh/uv/install.sh | sh
+              source ~/.bashrc
+          else
+              echo "☀️ Found uv at $(command -v uv)"
+          fi
+
+          echo "📦 Setting up virtual environment and installing dependencies..."
+          uv venv --clear -p python3.13 .venv
+          source .venv/bin/activate
+          uv sync
+
+          echo "Build Complete ✅."
+          echo "==============================="
+
+          echo "🚀 Starting application with pm2..."
+          if ! command -v pm2 >/dev/null 2>&1; then
+              echo "❗ PM2 not Found"
+              echo "install it with:  npm install pm2 -g"
+              exit 1
+          fi
+
+          echo "💾 Creating process $NAME..."
+          pm2 delete $NAME || true
+          pm2 start "uv run python main.py" --name $NAME --time
+          pm2 save
+          echo "Application is running on port $PORT ✅."
+          echo "==============================="
