@@ -17,7 +17,7 @@ if not APP_PASSWORD:
     raise ValueError("APP_PASSWORD environment variable is required in .env file")
 
 # Email configuration
-SENDER_EMAIL = "gdg.qu1@gmail.com"
+SENDER_EMAIL = "Info@kerneltics.com"
 SMTP_HOST = "smtp.gmail.com"
 SMTP_PORT = 587
 

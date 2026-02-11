@@ -117,7 +117,6 @@ class CertificateService:
         recipient: str,
         name: str,
         event_name: str,
-        announced_name: str,
         pdf_path: Path,
     ) -> tuple[bool, Optional[str]]:
         """Send certificate email to recipient. Returns (success, error_message)."""
@@ -145,7 +144,6 @@ class CertificateService:
         # Replace placeholders in HTML body
         body = body.replace("[Name]", name)
         body = body.replace("[Event Name]", event_name)
-        body = body.replace("[Registered Name]", announced_name)
         msg.add_alternative(body, subtype="html")
 
         msg.add_attachment(
@@ -214,7 +212,6 @@ class CertificateService:
 def process_certificates_job(
     job_id: str,
     event_name: str,
-    announced_name: str,
     date: str,
     official: bool,
     members: list[Member],
@@ -270,7 +267,6 @@ def process_certificates_job(
                 recipient=member.email,
                 name=member.name,
                 event_name=event_name,
-                announced_name=announced_name,
                 pdf_path=pdf_path,
             )
 
@@ -310,7 +306,6 @@ def process_certificates_job(
             folder_name=folder_name,
             job_id=job_id,
             event_name=event_name,
-            announced_name=announced_name,
             date=date,
             official=official,
             members=member_results,
@@ -334,7 +329,6 @@ def process_certificates_job(
         folder_name=folder_name,
         job_id=job_id,
         event_name=event_name,
-        announced_name=announced_name,
         date=date,
         official=official,
         members=member_results,

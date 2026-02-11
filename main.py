@@ -107,7 +107,6 @@ async def create_certificates(
         process_certificates_job,
         job_id=job_id,
         event_name=request.event_name,
-        announced_name=request.announced_name,
         date=request.date,
         official=request.official,
         members=request.members,
@@ -185,7 +184,6 @@ async def create_test_certificates(
         process_certificates_job,
         job_id=job_id,
         event_name=request.event_name,  # Use original event name in certificate
-        announced_name=request.announced_name,
         date=request.date,
         official=request.official,
         members=final_members,

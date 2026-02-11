@@ -5,8 +5,8 @@ from enum import Enum
 
 
 class Gender(str, Enum):
-    male = "male"
-    female = "female"
+    male = "Male"
+    female = "Female"
 
 
 class JobStatus(str, Enum):
@@ -33,7 +33,6 @@ class Member(BaseModel):
 
 class CertificateRequest(BaseModel):
     event_name: str
-    announced_name: str
     date: str
     official: bool
     members: list[Member]
@@ -45,7 +44,7 @@ class CertificateRequest(BaseModel):
             raise ValueError("Members list cannot be empty")
         return v
 
-    @field_validator("event_name", "announced_name", "date")
+    @field_validator("event_name", "date")
     @classmethod
     def check_not_empty(cls, v: str) -> str:
         if not v or not v.strip():
@@ -94,7 +93,6 @@ class MemberResult(BaseModel):
 class JobSummary(BaseModel):
     job_id: str
     event_name: str
-    announced_name: str
     folder_name: str
     date: str
     official: bool
@@ -110,7 +108,6 @@ class JobSummary(BaseModel):
 class EventListItem(BaseModel):
     folder_name: str
     event_name: str
-    announced_name: str
     date: str
     created_at: datetime
     status: JobStatus

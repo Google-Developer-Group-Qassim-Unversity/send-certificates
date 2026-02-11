@@ -135,7 +135,6 @@ class StorageManager:
         folder_name: str,
         job_id: str,
         event_name: str,
-        announced_name: str,
         date: str,
         official: bool,
         members: list[MemberResult],
@@ -153,7 +152,6 @@ class StorageManager:
         summary_data = {
             "job_id": job_id,
             "event_name": event_name,
-            "announced_name": announced_name,
             "folder_name": folder_name,
             "date": date,
             "official": official,
@@ -199,7 +197,6 @@ class StorageManager:
         return JobSummary(
             job_id=data["job_id"],
             event_name=data["event_name"],
-            announced_name=data["announced_name"],
             folder_name=data["folder_name"],
             date=data["date"],
             official=data["official"],
@@ -237,7 +234,6 @@ class StorageManager:
                     EventListItem(
                         folder_name=data["folder_name"],
                         event_name=data["event_name"],
-                        announced_name=data["announced_name"],
                         date=data["date"],
                         created_at=datetime.fromisoformat(data["created_at"]),
                         status=JobStatus(data["status"]),

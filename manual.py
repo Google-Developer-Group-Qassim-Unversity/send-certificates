@@ -16,7 +16,6 @@ def send_test_certificate(
     name: str,
     email: str,
     event_name: str,
-    announced_name: str,
     date: str,
     official: bool = True,
     gender: Gender = Gender.male,
@@ -28,7 +27,6 @@ def send_test_certificate(
         name: Recipient's name (used in certificate)
         email: Recipient's email address
         event_name: Event name for the certificate
-        announced_name: Announced/registered name for email body
         date: Event date (e.g., "2026-02-08")
         official: Whether to use official template (default: True)
         gender: Recipient's gender (default: Gender.male)
@@ -99,7 +97,6 @@ def send_test_certificate(
             recipient=email,
             name=name,
             event_name=event_name,
-            announced_name=announced_name,
             pdf_path=pdf_path,
         )
 
@@ -119,7 +116,6 @@ def send_test_certificate(
 def send_multiple_certificates(
     members: list[dict],
     event_name: str,
-    announced_name: str,
     date: str,
     official: bool = True,
 ) -> dict:
@@ -129,7 +125,6 @@ def send_multiple_certificates(
     Args:
         members: List of dicts with keys: name, email, gender
         event_name: Event name for certificates
-        announced_name: Announced/registered name for email body
         date: Event date
         official: Whether to use official template
 
@@ -149,7 +144,6 @@ def send_multiple_certificates(
             name=member_data["name"],
             email=member_data["email"],
             event_name=event_name,
-            announced_name=announced_name,
             date=date,
             official=official,
             gender=member_data.get("gender", Gender.male),
@@ -185,7 +179,6 @@ if __name__ == "__main__":
         name="Test User",
         email="albrrak337@gmail.com",  # Replace with your email for testing
         event_name="Test Event 2026",
-        announced_name="Test Event Official Name",
         date="2026-02-08",
         official=True,
         gender=Gender.male,
@@ -217,7 +210,6 @@ if __name__ == "__main__":
     send_multiple_certificates(
         members=test_recipients,
         event_name="Workshop 2026",
-        announced_name="Advanced Development Workshop",
         date="2026-02-08",
         official=True,
     )
