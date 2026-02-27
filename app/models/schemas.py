@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, field_validator
+from pydantic import BaseModel, field_validator
 from typing import Optional
 from datetime import datetime
 from enum import Enum
@@ -16,51 +16,34 @@ class JobStatus(str, Enum):
     failed = "failed"
 
 
-class MemberStatus(str, Enum):
+class RecipientStatus(str, Enum):
     pending = "pending"
     sent = "sent"
     failed = "failed"
 
 
-# ============ Request Models ============
+class JobType(str, Enum):
+    certificate = "certificate"
+    reminder = "reminder"
+    notification = "notification"
+    custom = "custom"
 
 
-class Member(BaseModel):
-    name: str
-    email: EmailStr
-    gender: Gender
+class TemplateType(str, Enum):
+    official = "official"
+    unofficial = "unofficial"
 
 
 class CertificateRequest(BaseModel):
-    event_name: str
-    date: str
-    official: bool
-    members: list[Member]
+    event_id: int
+    member_ids: list[int]
 
-    @field_validator("members")
+    @field_validator("member_ids")
     @classmethod
-    def check_members_not_empty(cls, v: list[Member]) -> list[Member]:
+    def check_members_not_empty(cls, v: list[int]) -> list[int]:
         if not v:
-            raise ValueError("Members list cannot be empty")
+            raise ValueError("member_ids list cannot be empty")
         return v
-
-    @field_validator("event_name", "date")
-    @classmethod
-    def check_not_empty(cls, v: str) -> str:
-        if not v or not v.strip():
-            raise ValueError("Field cannot be empty")
-        return v.strip()
-
-
-# ============ Response Models ============
-
-
-class CertificateResponse(BaseModel):
-    job_id: str
-    event_name: str
-    folder_name: str
-    status: JobStatus
-    message: str
 
 
 class JobProgress(BaseModel):
@@ -70,55 +53,54 @@ class JobProgress(BaseModel):
     failed: int
 
 
-class JobStatusResponse(BaseModel):
+class JobResponse(BaseModel):
     job_id: str
+    event_id: int
     event_name: str
-    folder_name: str
+    job_type: JobType
     status: JobStatus
     progress: JobProgress
     created_at: datetime
     updated_at: datetime
 
 
-class MemberResult(BaseModel):
+class RecipientResult(BaseModel):
+    recipient_id: int
+    member_id: int
     name: str
-    email: str
-    gender: str
-    status: MemberStatus
+    email: Optional[str]
+    status: RecipientStatus
     sent_at: Optional[datetime] = None
     certificate_url: Optional[str] = None
     error: Optional[str] = None
 
 
-class JobSummary(BaseModel):
+class JobDetailResponse(BaseModel):
     job_id: str
+    event_id: int
     event_name: str
-    folder_name: str
-    date: str
-    official: bool
+    job_type: JobType
+    status: JobStatus
+    progress: JobProgress
     created_at: datetime
+    updated_at: datetime
     completed_at: Optional[datetime] = None
-    status: JobStatus
-    total_members: int
-    successful: int
-    failed: int
-    members: list[MemberResult]
+    recipients: list[RecipientResult]
 
 
-class EventListItem(BaseModel):
-    folder_name: str
+class JobListItem(BaseModel):
+    job_id: str
+    event_id: int
     event_name: str
-    date: str
-    created_at: datetime
+    job_type: JobType
     status: JobStatus
-    total_members: int
-    successful: int
-    failed: int
+    progress: JobProgress
+    created_at: datetime
 
 
-class EventsList(BaseModel):
+class JobsListResponse(BaseModel):
     total: int
-    events: list[EventListItem]
+    jobs: list[JobListItem]
 
 
 class HealthCheck(BaseModel):

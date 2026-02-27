@@ -6,13 +6,18 @@ from fastapi import FastAPI
 from app.core.config import settings
 from app.routers import certificates, status
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="\t%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+
 logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Certificate API starting up...")
-    logger.info(f"Jobs folder: {settings.jobs_folder}")
+    logger.info(f"Certificates folder: {settings.certificates_folder}")
     logger.info(f"Official template: {settings.official_template}")
     logger.info(f"Unofficial template: {settings.unofficial_template}")
     yield
@@ -22,7 +27,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Certificate Generator API",
     description="Generate and send certificates via email",
-    version="1.0.0",
+    version="2.0.0",
     lifespan=lifespan,
 )
 

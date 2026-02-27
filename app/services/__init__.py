@@ -1,13 +1,13 @@
-from app.services.storage import storage
 from app.services.certificate import (
     CertificateService,
     certificate_service,
     process_certificates_job,
 )
+from app.services.database import DatabaseService
 
 __all__ = [
-    "storage",
     "CertificateService",
     "certificate_service",
     "process_certificates_job",
+    "DatabaseService",
 ]

@@ -1,98 +1,176 @@
 import logging
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Depends, status, Query
+from sqlmodel import Session
 
 from app.models.schemas import (
-    JobStatusResponse,
+    JobResponse,
+    JobDetailResponse,
     JobProgress,
-    JobSummary,
-    EventsList,
+    JobsListResponse,
+    JobListItem,
+    RecipientResult,
     HealthCheck,
+    JobType,
+    JobStatus,
+    RecipientStatus,
 )
-from app.services.storage import storage
+from app.db.session import get_session
+from app.db.schema import EmailServiceJobType
+from app.services.database import DatabaseService
 from app.services.certificate import certificate_service
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["status"])
+router = APIRouter(tags=["jobs"])
 
 
 @router.get(
-    "/status/{job_id}",
-    response_model=JobStatusResponse,
-    summary="Get job status",
-    description="Get the current status of a certificate generation job",
+    "/jobs",
+    response_model=JobsListResponse,
+    summary="List all jobs",
+    description="Get a paginated list of all email service jobs",
 )
-async def get_job_status(job_id: str):
-    job_status = storage.get_job_status(job_id)
+async def list_jobs(
+    event_id: int | None = Query(None, description="Filter by event ID"),
+    job_type: JobType | None = Query(None, description="Filter by job type"),
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    session: Session = Depends(get_session),
+):
+    db = DatabaseService(session)
 
-    if not job_status:
-        folder_name = storage.get_folder_by_job_id(job_id)
-        if folder_name:
-            summary = storage.read_summary(folder_name)
-            if summary:
-                return JobStatusResponse(
-                    job_id=summary.job_id,
-                    event_name=summary.event_name,
-                    folder_name=summary.folder_name,
-                    status=summary.status,
-                    progress=JobProgress(
-                        total=summary.total_members,
-                        completed=summary.total_members,
-                        successful=summary.successful,
-                        failed=summary.failed,
-                    ),
-                    created_at=summary.created_at,
-                    updated_at=summary.completed_at or summary.created_at,
-                )
+    db_job_type = None
+    if job_type:
+        db_job_type = EmailServiceJobType(job_type.value)
 
+    jobs = db.list_jobs(
+        event_id=event_id, job_type=db_job_type, limit=limit, offset=offset
+    )
+    total = db.count_jobs(event_id=event_id, job_type=db_job_type)
+
+    job_items = []
+    for job in jobs:
+        event = db.get_event(job.event_id)
+        job_items.append(
+            JobListItem(
+                job_id=job.id,
+                event_id=job.event_id,
+                event_name=event.name if event else "Unknown",
+                job_type=JobType(job.job_type.value),
+                status=JobStatus(job.status.value),
+                progress=JobProgress(
+                    total=job.total,
+                    completed=job.completed,
+                    successful=job.successful,
+                    failed=job.failed,
+                ),
+                created_at=job.created_at,
+            )
+        )
+
+    return JobsListResponse(total=total, jobs=job_items)
+
+
+@router.get(
+    "/jobs/{job_id}",
+    response_model=JobResponse,
+    summary="Get job status",
+    description="Get the current status of an email service job",
+)
+async def get_job_status(
+    job_id: str,
+    session: Session = Depends(get_session),
+):
+    db = DatabaseService(session)
+
+    job = db.get_job(job_id)
+    if not job:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Job with ID '{job_id}' not found",
         )
 
-    return JobStatusResponse(
-        job_id=job_status["job_id"],
-        event_name=job_status["event_name"],
-        folder_name=job_status["folder_name"],
-        status=job_status["status"],
-        progress=JobProgress(**job_status["progress"]),
-        created_at=datetime.fromisoformat(job_status["created_at"]),
-        updated_at=datetime.fromisoformat(job_status["updated_at"]),
+    event = db.get_event(job.event_id)
+
+    return JobResponse(
+        job_id=job.id,
+        event_id=job.event_id,
+        event_name=event.name if event else "Unknown",
+        job_type=JobType(job.job_type.value),
+        status=JobStatus(job.status.value),
+        progress=JobProgress(
+            total=job.total,
+            completed=job.completed,
+            successful=job.successful,
+            failed=job.failed,
+        ),
+        created_at=job.created_at,
+        updated_at=job.updated_at,
     )
 
 
 @router.get(
-    "/summary/{folder_name}",
-    response_model=JobSummary,
-    summary="Get job summary",
-    description="Get the complete summary of a finished job including all member results",
+    "/jobs/{job_id}/recipients",
+    response_model=JobDetailResponse,
+    summary="Get job recipients",
+    description="Get the complete list of recipients and their status for a job",
 )
-async def get_job_summary(folder_name: str):
-    summary = storage.read_summary(folder_name)
+async def get_job_recipients(
+    job_id: str,
+    session: Session = Depends(get_session),
+):
+    db = DatabaseService(session)
 
-    if not summary:
+    job = db.get_job(job_id)
+    if not job:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Summary for folder '{folder_name}' not found",
+            detail=f"Job with ID '{job_id}' not found",
         )
 
-    return summary
+    event = db.get_event(job.event_id)
+    recipients = db.get_recipients_for_job(job_id)
 
+    recipient_results = []
+    for recipient in recipients:
+        member = db.get_member(recipient.member_id)
+        certificate = db.get_certificate_for_recipient(recipient.id)
 
-@router.get(
-    "/summaries",
-    response_model=EventsList,
-    summary="List all summaries",
-    description="Get a list of all job summaries",
-)
-async def list_summaries():
-    events = storage.list_all_summaries()
+        certificate_url = None
+        if certificate:
+            certificate_url = f"/certificates/{job_id}/{recipient.member_id}"
 
-    return EventsList(
-        total=len(events),
-        events=events,
+        recipient_results.append(
+            RecipientResult(
+                recipient_id=recipient.id,
+                member_id=recipient.member_id,
+                name=member.name if member else "Unknown",
+                email=member.email if member else None,
+                status=RecipientStatus(recipient.status.value),
+                sent_at=recipient.sent_at,
+                certificate_url=certificate_url,
+                error=recipient.error,
+            )
+        )
+
+    return JobDetailResponse(
+        job_id=job.id,
+        event_id=job.event_id,
+        event_name=event.name if event else "Unknown",
+        job_type=JobType(job.job_type.value),
+        status=JobStatus(job.status.value),
+        progress=JobProgress(
+            total=job.total,
+            completed=job.completed,
+            successful=job.successful,
+            failed=job.failed,
+        ),
+        created_at=job.created_at,
+        updated_at=job.updated_at,
+        completed_at=job.completed_at,
+        recipients=recipient_results,
     )
 
 

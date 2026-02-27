@@ -49,10 +49,12 @@ else:
 # Storage - environment-specific
 if ENVIRONMENT == "production":
     JOBS_FOLDER = str(Path.home() / "GDG-certificates")
-    # Create folder if it doesn't exist
+    CERTIFICATES_FOLDER = str(Path.home() / "GDG-Files" / "certificates")
     Path(JOBS_FOLDER).mkdir(parents=True, exist_ok=True)
+    Path(CERTIFICATES_FOLDER).mkdir(parents=True, exist_ok=True)
 else:  # development
     JOBS_FOLDER = "jobs"
+    CERTIFICATES_FOLDER = "certificates"
 
 
 # ============ SETTINGS CLASS (for backward compatibility) ============
@@ -70,6 +72,7 @@ class Settings:
     max_retries = MAX_RETRIES
     email_delay = EMAIL_DELAY
     jobs_folder = JOBS_FOLDER
+    certificates_folder = CERTIFICATES_FOLDER
     delimiter_start = DELIMITER_START
     delimiter_end = DELIMITER_END
     name_placeholder = NAME_PLACEHOLDER
@@ -79,7 +82,6 @@ class Settings:
     libreoffice_path = LIBREOFFICE_PATH
 
     def get_libreoffice_path(self) -> str:
-        """Get LibreOffice executable path."""
         return self.libreoffice_path
 
 

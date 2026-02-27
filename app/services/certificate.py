@@ -8,22 +8,26 @@ from datetime import datetime
 from typing import Optional
 
 from pptx import Presentation
+from sqlmodel import Session
 
 from app.core.config import settings
-from app.models.schemas import JobStatus, MemberStatus, MemberResult, Member
-from app.services.storage import storage
+from app.db.session import engine
+from app.db.schema import (
+    Events,
+    EmailServiceJobStatus,
+    EmailServiceRecipientStatus,
+    EmailServiceTemplateType,
+)
+from app.services.database import DatabaseService
 
 logger = logging.getLogger(__name__)
 
 
 class CertificateService:
-    """Service for generating and sending certificates."""
-
     def __init__(self):
         self.libreoffice = settings.get_libreoffice_path()
 
     def get_template_path(self, official: bool) -> str:
-        """Get the certificate template path based on official flag."""
         if official:
             return settings.official_template
         return settings.unofficial_template
@@ -36,7 +40,6 @@ class CertificateService:
         template_path: str,
         output_folder: Path,
     ) -> Path:
-        """Replace placeholders in PPTX file and save to output folder."""
         prs = Presentation(template_path)
         logger.info(f"Replacing placeholders in PPTX file: '{template_path}'")
 
@@ -51,7 +54,6 @@ class CertificateService:
                             settings.delimiter_start in run_text
                             and settings.delimiter_end in run_text
                         ):
-                            # Find placeholder
                             placeholder = run_text[
                                 run_text.find(settings.delimiter_start) : run_text.find(
                                     settings.delimiter_end
@@ -70,7 +72,6 @@ class CertificateService:
                             if date_placeholder in run_text:
                                 run.text = run.text.replace(placeholder, date)
 
-        # Create safe filename from name
         safe_name = self._sanitize_filename(name)
         output_pptx_name = f"{safe_name}-output-certificate.pptx"
         output_path = output_folder / output_pptx_name
@@ -79,7 +80,6 @@ class CertificateService:
         return output_path
 
     def pptx_to_pdf(self, input_pptx_path: Path, output_folder: Path) -> Optional[Path]:
-        """Convert PPTX to PDF using LibreOffice."""
         logger.info(f"Converting to PDF with '{self.libreoffice}'")
 
         cmd = [
@@ -100,7 +100,6 @@ class CertificateService:
         )
 
         if result.returncode == 0:
-            # LibreOffice outputs PDF with same name but .pdf extension
             pdf_name = input_pptx_path.stem + ".pdf"
             output_pdf = output_folder / pdf_name
             logger.info(f"PDF output saved to '{output_pdf}'")
@@ -119,7 +118,6 @@ class CertificateService:
         event_name: str,
         pdf_path: Path,
     ) -> tuple[bool, Optional[str]]:
-        """Send certificate email to recipient. Returns (success, error_message)."""
         subject = f"شهادة حضور {event_name}"
 
         try:
@@ -132,7 +130,6 @@ class CertificateService:
             logger.error(error_msg)
             return False, error_msg
 
-        # Create the email message
         msg = EmailMessage()
         msg["From"] = settings.sender_email
         msg["To"] = recipient
@@ -141,7 +138,6 @@ class CertificateService:
             "This email contains HTML. Please view it in an HTML-compatible client."
         )
 
-        # Replace placeholders in HTML body
         body = body.replace("[Name]", name)
         body = body.replace("[Event Name]", event_name)
         msg.add_alternative(body, subtype="html")
@@ -175,8 +171,6 @@ class CertificateService:
         return False, f"Failed after {settings.max_retries} attempts: {error_msg}"
 
     def _sanitize_filename(self, name: str) -> str:
-        """Create a safe filename from a name."""
-        # Replace spaces with hyphens, remove unsafe characters
         import re
 
         safe = re.sub(r'[<>:"/\\|?*]', "", name)
@@ -184,7 +178,6 @@ class CertificateService:
         return safe
 
     def check_libreoffice(self) -> bool:
-        """Check if LibreOffice is available."""
         try:
             result = subprocess.run(
                 [self.libreoffice, "--version"],
@@ -197,7 +190,6 @@ class CertificateService:
             return False
 
     def check_smtp(self) -> bool:
-        """Check if SMTP connection can be established."""
         try:
             with smtplib.SMTP(
                 settings.smtp_host, settings.smtp_port, timeout=10
@@ -211,134 +203,161 @@ class CertificateService:
 
 def process_certificates_job(
     job_id: str,
-    event_name: str,
-    date: str,
-    official: bool,
-    members: list[Member],
-    folder_name: str,
+    event_id: int,
+    member_ids: list[int],
 ) -> None:
-    """Background task to process certificate generation and sending."""
     service = CertificateService()
-    output_folder = storage.get_job_folder_path(folder_name)
-    template_path = service.get_template_path(official)
-    created_at = datetime.utcnow()
 
-    # Update job status to processing
-    storage.update_job_status(job_id, status=JobStatus.processing)
+    with Session(engine) as session:
+        db = DatabaseService(session)
 
-    member_results: list[MemberResult] = []
+        job = db.get_job(job_id)
+        if not job:
+            logger.error(f"Job {job_id} not found")
+            return
 
-    for i, member in enumerate(members, 1):
-        logger.info(f"Processing [{i}/{len(members)}]: {member.name}")
+        event = db.get_event(event_id)
+        if not event:
+            logger.error(f"Event {event_id} not found")
+            db.update_job_status(job_id, status=EmailServiceJobStatus.FAILED)
+            return
 
-        result = MemberResult(
-            name=member.name,
-            email=member.email,
-            gender=member.gender.value,
-            status=MemberStatus.pending,
+        db.update_job_status(job_id, status=EmailServiceJobStatus.PROCESSING)
+
+        template_type = (
+            EmailServiceTemplateType.OFFICIAL
+            if event.is_official
+            else EmailServiceTemplateType.UNOFFICIAL
         )
+        template_path = service.get_template_path(bool(event.is_official))
 
-        try:
-            # Generate PPTX with placeholders replaced
-            pptx_path = service.replace_placeholder(
-                name=member.name,
-                event_name=event_name,
-                date=date,
-                template_path=template_path,
-                output_folder=output_folder,
-            )
+        event_date = event.start_datetime.strftime("%Y-%m-%d")
 
-            # Convert to PDF
-            pdf_path = service.pptx_to_pdf(pptx_path, output_folder)
+        recipients = db.get_recipients_for_job(job_id)
 
-            if pdf_path is None:
-                result.status = MemberStatus.failed
-                result.error = "PDF conversion failed"
-                storage.update_job_status(
+        for recipient in recipients:
+            member = db.get_member(recipient.member_id)
+            if not member:
+                logger.error(f"Member {recipient.member_id} not found")
+                db.update_recipient_status(
+                    recipient.id,
+                    EmailServiceRecipientStatus.FAILED,
+                    error="Member not found in database",
+                )
+                db.update_job_status(
                     job_id,
                     increment_completed=True,
                     increment_failed=True,
                 )
-                member_results.append(result)
                 continue
 
-            # Send email
-            success, error = service.send_email(
-                recipient=member.email,
-                name=member.name,
-                event_name=event_name,
-                pdf_path=pdf_path,
-            )
+            logger.info(f"Processing member {member.id}: {member.name}")
 
-            if success:
-                result.status = MemberStatus.sent
-                result.sent_at = datetime.utcnow()
-                result.certificate_url = f"/certificates/{folder_name}/{pdf_path.name}"
-                storage.update_job_status(
-                    job_id,
-                    increment_completed=True,
-                    increment_successful=True,
+            try:
+                output_folder = (
+                    Path(settings.certificates_folder)
+                    / f"{event_id}-{db.sanitize_filename(event.name)}"
                 )
-            else:
-                result.status = MemberStatus.failed
-                result.error = error
-                result.certificate_url = f"/certificates/{folder_name}/{pdf_path.name}"
-                storage.update_job_status(
+                output_folder.mkdir(parents=True, exist_ok=True)
+
+                pptx_path = service.replace_placeholder(
+                    name=member.name,
+                    event_name=event.name,
+                    date=event_date,
+                    template_path=template_path,
+                    output_folder=output_folder,
+                )
+
+                pdf_path = service.pptx_to_pdf(pptx_path, output_folder)
+
+                if pdf_path is None:
+                    db.update_recipient_status(
+                        recipient.id,
+                        EmailServiceRecipientStatus.FAILED,
+                        error="PDF conversion failed",
+                    )
+                    db.update_job_status(
+                        job_id,
+                        increment_completed=True,
+                        increment_failed=True,
+                    )
+                    continue
+
+                relative_path = (
+                    f"{event_id}-{db.sanitize_filename(event.name)}/{pdf_path.name}"
+                )
+                db.create_certificate(
+                    recipient_id=recipient.id,
+                    certificate_path=relative_path,
+                    template_type=template_type,
+                )
+
+                if not member.email:
+                    db.update_recipient_status(
+                        recipient.id,
+                        EmailServiceRecipientStatus.FAILED,
+                        error="Member has no email address",
+                    )
+                    db.update_job_status(
+                        job_id,
+                        increment_completed=True,
+                        increment_failed=True,
+                    )
+                    continue
+
+                success, error = service.send_email(
+                    recipient=member.email,
+                    name=member.name,
+                    event_name=event.name,
+                    pdf_path=pdf_path,
+                )
+
+                if success:
+                    db.update_recipient_status(
+                        recipient.id, EmailServiceRecipientStatus.SENT
+                    )
+                    db.update_job_status(
+                        job_id,
+                        increment_completed=True,
+                        increment_successful=True,
+                    )
+                else:
+                    db.update_recipient_status(
+                        recipient.id,
+                        EmailServiceRecipientStatus.FAILED,
+                        error=error,
+                    )
+                    db.update_job_status(
+                        job_id,
+                        increment_completed=True,
+                        increment_failed=True,
+                    )
+
+                try:
+                    pptx_path.unlink()
+                except Exception:
+                    pass
+
+            except Exception as e:
+                logger.exception(f"Error processing {member.name}: {e}")
+                db.update_recipient_status(
+                    recipient.id,
+                    EmailServiceRecipientStatus.FAILED,
+                    error=str(e),
+                )
+                db.update_job_status(
                     job_id,
                     increment_completed=True,
                     increment_failed=True,
                 )
 
-        except Exception as e:
-            logger.exception(f"Error processing {member.name}: {e}")
-            result.status = MemberStatus.failed
-            result.error = str(e)
-            storage.update_job_status(
-                job_id,
-                increment_completed=True,
-                increment_failed=True,
-            )
+        job = db.get_job(job_id)
+        if job and job.failed == job.total:
+            db.update_job_status(job_id, status=EmailServiceJobStatus.FAILED)
+        else:
+            db.update_job_status(job_id, status=EmailServiceJobStatus.COMPLETED)
 
-        member_results.append(result)
-
-        # Update summary.json after each member
-        storage.write_summary(
-            folder_name=folder_name,
-            job_id=job_id,
-            event_name=event_name,
-            date=date,
-            official=official,
-            members=member_results,
-            status=JobStatus.processing,
-            created_at=created_at,
-        )
-
-    # Finalize job
-    completed_at = datetime.utcnow()
-    final_status = JobStatus.completed
-
-    # Check if all failed
-    if all(m.status == MemberStatus.failed for m in member_results):
-        final_status = JobStatus.failed
-
-    storage.update_job_status(job_id, status=final_status)
-    storage.mark_event_completed(event_name)
-
-    # Write final summary
-    storage.write_summary(
-        folder_name=folder_name,
-        job_id=job_id,
-        event_name=event_name,
-        date=date,
-        official=official,
-        members=member_results,
-        status=final_status,
-        created_at=created_at,
-        completed_at=completed_at,
-    )
-
-    logger.info(f"Job {job_id} completed with status: {final_status.value}")
+        logger.info(f"Job {job_id} completed")
 
 
-# Global service instance
 certificate_service = CertificateService()
