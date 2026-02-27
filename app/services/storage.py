@@ -6,8 +6,8 @@ from pathlib import Path
 from datetime import datetime
 from typing import Optional
 
-from config import settings
-from models import (
+from app.core.config import settings
+from app.models.schemas import (
     JobStatus,
     MemberStatus,
     MemberResult,

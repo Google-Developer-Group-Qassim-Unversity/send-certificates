@@ -9,9 +9,9 @@ from typing import Optional
 
 from pptx import Presentation
 
-from config import settings
-from models import JobStatus, MemberStatus, MemberResult, Member
-from storage import storage
+from app.core.config import settings
+from app.models.schemas import JobStatus, MemberStatus, MemberResult, Member
+from app.services.storage import storage
 
 logger = logging.getLogger(__name__)
 

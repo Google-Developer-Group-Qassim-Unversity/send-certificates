@@ -5,26 +5,41 @@ A FastAPI service that generates personalized certificates from PowerPoint templ
 ## Project Structure
 
 ```
-├── main.py          # FastAPI app with API endpoints
-├── services.py      # Certificate generation & email logic
-├── storage.py       # Job state & file management
-├── models.py        # Pydantic models (request/response)
-├── config.py        # Configuration & environment
-├── manual.py        # Standalone script for testing
-├── jobs/            # Generated certificates (production: ~/GDG-certificates)
-├── certificate.pptx # Official template
-└── index.html       # Email HTML template
+app/
+├── __init__.py
+├── main.py              # FastAPI app instance + router includes
+├── core/
+│   ├── __init__.py
+│   └── config.py        # Configuration & environment
+├── models/
+│   ├── __init__.py
+│   └── schemas.py       # Pydantic models (request/response)
+├── routers/
+│   ├── __init__.py
+│   ├── certificates.py  # Certificate API endpoints
+│   └── status.py        # Status/health/summary endpoints
+└── services/
+    ├── __init__.py
+    ├── certificate.py   # Certificate generation & email logic
+    └── storage.py       # Job state & file management
+
+├── manual.py            # Standalone script for testing
+├── jobs/                # Generated certificates (production: ~/GDG-certificates)
+├── certificate.pptx     # Official template
+└── index.html           # Email HTML template
 ```
 
 ## Core Components
 
 | File | Purpose |
 |------|---------|
-| `main.py` | API routes, background task orchestration |
-| `services.py` | PPTX manipulation, PDF conversion (LibreOffice), SMTP email |
-| `storage.py` | In-memory job tracking + persistent `summary.json` files |
-| `models.py` | Data validation with Pydantic |
-| `config.py` | Settings loaded from `.env` |
+| `app/main.py` | FastAPI app instance, lifespan events, router registration |
+| `app/routers/certificates.py` | Certificate API routes, background task orchestration |
+| `app/routers/status.py` | Job status, health check, summary endpoints |
+| `app/services/certificate.py` | PPTX manipulation, PDF conversion (LibreOffice), SMTP email |
+| `app/services/storage.py` | In-memory job tracking + persistent `summary.json` files |
+| `app/models/schemas.py` | Data validation with Pydantic |
+| `app/core/config.py` | Settings loaded from `.env` |
 
 ## Main Flow
 
@@ -65,16 +80,18 @@ POST /certificates
 ## Key Data Flows
 
 ### Request → Job
-1. `CertificateRequest` → validated by Pydantic
+1. `CertificateRequest` → validated by Pydantic in `app/models/schemas.py`
 2. Job folder created: `{event-name}-{timestamp}/`
-3. Job tracked in `StorageManager._job_status` (in-memory)
-4. Background task queued via FastAPI `BackgroundTasks`
+3. Job tracked in `StorageManager._job_status` (in-memory) in `app/services/storage.py`
+4. Background task queued via FastAPI `BackgroundTasks` from `app/routers/certificates.py`
 
 ### Processing Pipeline (per member)
 1. `replace_placeholder()` - Opens PPTX, replaces `<<name>>`, `<<event_name>>`, `<<event_date>>`
 2. `pptx_to_pdf()` - Calls LibreOffice headless
 3. `send_email()` - SMTP with retry logic (3 attempts, 4s delay)
 4. Status updated in memory + `summary.json` written after each member
+
+All implemented in `app/services/certificate.py`.
 
 ### Storage
 - **In-memory**: `_job_status` dict for real-time progress tracking
