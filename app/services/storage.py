@@ -13,7 +13,6 @@ from app.models.schemas import (
     MemberResult,
     JobSummary,
     EventListItem,
-    Member,
 )
 
 

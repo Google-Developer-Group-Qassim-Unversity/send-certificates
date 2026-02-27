@@ -23,7 +23,6 @@ app/
     ├── certificate.py   # Certificate generation & email logic
     └── storage.py       # Job state & file management
 
-├── manual.py            # Standalone script for testing
 ├── jobs/                # Generated certificates (production: ~/GDG-certificates)
 ├── certificate.pptx     # Official template
 └── index.html           # Email HTML template
@@ -108,9 +107,4 @@ All implemented in `app/services/certificate.py`.
 
 ## Testing
 
-Run `manual.py` to send test certificates without starting the server:
-```python
-python manual.py
-```
-
-Or use the `/certificates/test` endpoint which injects test recipients.
+Use the `/certificates/test` endpoint which injects test recipients.

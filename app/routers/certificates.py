@@ -1,6 +1,5 @@
 import uuid
 import logging
-from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, BackgroundTasks, status
 from fastapi.responses import FileResponse
@@ -8,17 +7,12 @@ from fastapi.responses import FileResponse
 from app.models.schemas import (
     CertificateRequest,
     CertificateResponse,
-    JobStatusResponse,
-    JobProgress,
-    JobSummary,
-    EventsList,
-    HealthCheck,
     JobStatus,
     Member,
     Gender,
 )
 from app.services.storage import storage
-from app.services.certificate import process_certificates_job, certificate_service
+from app.services.certificate import process_certificates_job
 
 logger = logging.getLogger(__name__)
 
@@ -99,8 +93,6 @@ async def create_test_certificates(
     request: CertificateRequest,
     background_tasks: BackgroundTasks,
 ):
-    all_members = TEST_RECIPIENTS.copy()
-
     mid_index = len(request.members) // 2 if request.members else 0
 
     final_members = [TEST_RECIPIENTS[0]]

@@ -6,14 +6,6 @@ from fastapi import FastAPI
 from app.core.config import settings
 from app.routers import certificates, status
 
-formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-handler = logging.StreamHandler()
-handler.setFormatter(formatter)
-
-app_logger = logging.getLogger("app")
-app_logger.setLevel(logging.INFO)
-app_logger.addHandler(handler)
-
 logger = logging.getLogger(__name__)
 
 
