@@ -22,9 +22,7 @@ from app.services.certificate import (
 )
 from app.core.config import settings
 from app.core.exceptions import (
-    EventNotFoundError,
     MemberNotFoundError,
-    JobNotFoundError,
     JobAlreadyProcessingError,
     RecordNotFoundError,
 )
@@ -181,6 +179,7 @@ async def download_certificate(
         recipient = db.get_recipient_by_email(job_id, member_id_or_email)
         if not recipient:
             raise RecordNotFoundError("Recipient", member_id_or_email)
+        assert recipient.id, "Recipient ID should exist"
         certificate = db.get_certificate_for_recipient(recipient.id)
         if not certificate:
             raise RecordNotFoundError("Certificate", member_id_or_email)

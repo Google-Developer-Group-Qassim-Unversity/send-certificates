@@ -1,5 +1,4 @@
 import logging
-from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, status, Query
@@ -11,7 +10,6 @@ from app.models.schemas import (
     EmailBlastDetailResponse,
     EmailBlastListResponse,
     EmailBlastListItem,
-    JobStatus,
     BlastDeliveryStatus,
 )
 from app.db.session import get_session
@@ -19,9 +17,7 @@ from app.db.schema import EmailServiceJobType
 from app.services.database import DatabaseService
 from app.services.email_blast import process_email_blast_job
 from app.core.exceptions import (
-    EventNotFoundError,
     MemberNotFoundError,
-    JobNotFoundError,
     RecordNotFoundError,
     InvalidInputError,
 )

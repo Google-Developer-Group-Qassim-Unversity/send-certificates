@@ -24,33 +24,6 @@ from app.core.exceptions import (
 logger = logging.getLogger(__name__)
 
 
-class ErrorResponse:
-    def __init__(
-        self,
-        status_code: int,
-        error_code: str,
-        message: str,
-        details: dict[str, Any] | None = None,
-        request_id: str | None = None,
-    ):
-        self.status_code = status_code
-        self.error_code = error_code
-        self.message = message
-        self.details = details
-        self.request_id = request_id
-
-    def to_json(self) -> dict[str, Any]:
-        response = {
-            "error_code": self.error_code,
-            "message": self.message,
-        }
-        if self.details:
-            response["details"] = self.details
-        if self.request_id:
-            response["request_id"] = self.request_id
-        return response
-
-
 def register_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(AppError)
     async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
@@ -66,16 +39,15 @@ def register_error_handlers(app: FastAPI) -> None:
             },
         )
 
-        error_response = ErrorResponse(
-            status_code=status_code,
-            error_code=exc.error_code,
-            message=exc.message,
-            details=exc.details if exc.details else None,
-        )
+        content: dict[str, Any] = {
+            "error_code": exc.error_code,
+            "message": exc.message,
+            **({"details": exc.details} if exc.details else {}),
+        }
 
         return JSONResponse(
             status_code=status_code,
-            content=error_response.to_json(),
+            content=content,
         )
 
     @app.exception_handler(RequestValidationError)

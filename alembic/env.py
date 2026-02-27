@@ -19,12 +19,6 @@ if database_url and database_url.startswith("mysql://"):
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-from app.db.schema import (
-    EmailServiceJob,
-    EmailServiceRecipient,
-    EmailServiceCertificate,
-    EmailServiceEmailBlast,
-)
 
 target_metadata = SQLModel.metadata
 
@@ -42,6 +36,7 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
+    assert database_url, "DATABASE_URL environment variable is required for migrations"
     connectable = create_engine(database_url, poolclass=pool.NullPool)
 
     with connectable.connect() as connection:

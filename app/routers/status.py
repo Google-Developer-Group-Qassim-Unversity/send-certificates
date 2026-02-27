@@ -1,7 +1,7 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, status, Query
+from fastapi import APIRouter, Depends, Query
 from sqlmodel import Session
 
 from app.models.schemas import (
@@ -20,7 +20,6 @@ from app.db.session import get_session
 from app.db.schema import EmailServiceJobType
 from app.services.database import DatabaseService
 from app.services.certificate import certificate_service
-from app.core.exceptions import JobNotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -126,6 +125,7 @@ async def get_job_recipients(
 
     recipient_results = []
     for recipient in recipients:
+        assert recipient.id, "Recipient ID should exist"
         member = db.get_member(recipient.member_id) if recipient.member_id else None
         certificate = db.get_certificate_for_recipient(recipient.id)
 
@@ -187,5 +187,5 @@ async def health_check():
         status=overall_status,
         libreoffice=libreoffice_status,
         smtp=smtp_status,
-        timestamp=datetime.utcnow(),
+        timestamp=datetime.now(timezone.utc),
     )

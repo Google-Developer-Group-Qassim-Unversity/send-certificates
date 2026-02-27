@@ -4,7 +4,7 @@ import time
 import logging
 from pathlib import Path
 from email.message import EmailMessage
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from pptx import Presentation
@@ -13,7 +13,6 @@ from sqlmodel import Session
 from app.core.config import settings
 from app.db.session import engine
 from app.db.schema import (
-    Events,
     EmailServiceJobStatus,
     EmailServiceRecipientStatus,
     EmailServiceTemplateType,
@@ -25,7 +24,6 @@ from app.core.exceptions import (
     TemplateNotFoundError,
     PdfConversionError,
     EmailSendError,
-    SmtpConnectionError,
     CertificateGenerationError,
 )
 
@@ -60,7 +58,7 @@ class CertificateService:
             for shape in slide.shapes:
                 if not shape.has_text_frame:
                     continue
-                for paragraph in shape.text_frame.paragraphs:
+                for paragraph in shape.text_frame.paragraphs:  # type: ignore[union-attr]
                     for run in paragraph.runs:
                         run_text: str = run.text
                         if (
@@ -280,6 +278,7 @@ def process_certificate_event_job(job_id: str) -> None:
         )
 
         for recipient in recipients:
+            assert recipient.id, "Recipient ID should exist"
             if not recipient.member_id:
                 db.update_recipient_status(
                     recipient.id,
@@ -306,6 +305,7 @@ def process_certificate_event_job(job_id: str) -> None:
 
             logger.info(f"Processing member {member.id}: {member.name}")
 
+            pptx_path: Optional[Path] = None
             try:
                 output_folder = (
                     Path(settings.certificates_folder)
@@ -379,7 +379,7 @@ def process_certificate_event_job(job_id: str) -> None:
                 )
             finally:
                 try:
-                    if "pptx_path" in locals():
+                    if pptx_path:
                         pptx_path.unlink()
                 except Exception as cleanup_error:
                     logger.warning(f"Failed to cleanup PPTX file: {cleanup_error}")
@@ -408,7 +408,7 @@ def process_certificate_custom_job(job_id: str) -> None:
         job_config = job.job_config or {}
         event_name = job_config.get("event_name", "Unknown Event")
         event_date = job_config.get(
-            "event_date", datetime.utcnow().strftime("%Y-%m-%d")
+            "event_date", datetime.now(timezone.utc).strftime("%Y-%m-%d")
         )
         official = job_config.get("official", False)
 
@@ -427,6 +427,7 @@ def process_certificate_custom_job(job_id: str) -> None:
         )
 
         for recipient in recipients:
+            assert recipient.id, "Recipient ID should exist"
             name = recipient.name or "Unknown"
             email = recipient.email
 
@@ -444,6 +445,7 @@ def process_certificate_custom_job(job_id: str) -> None:
 
             logger.info(f"Processing recipient: {name} ({email})")
 
+            pptx_path: Optional[Path] = None
             try:
                 output_folder = (
                     Path(settings.certificates_folder) / f"custom-{job_id[:8]}"
@@ -499,7 +501,7 @@ def process_certificate_custom_job(job_id: str) -> None:
                 )
             finally:
                 try:
-                    if "pptx_path" in locals():
+                    if pptx_path:
                         pptx_path.unlink()
                 except Exception as cleanup_error:
                     logger.warning(f"Failed to cleanup PPTX file: {cleanup_error}")

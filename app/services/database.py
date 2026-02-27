@@ -2,8 +2,8 @@ import re
 import uuid
 import logging
 from pathlib import Path
-from datetime import datetime
-from typing import Optional, Any
+from datetime import datetime, timezone
+from typing import Optional
 
 from sqlmodel import Session, select, func
 
@@ -48,7 +48,7 @@ class DatabaseService:
         return self.session.get(Members, member_id)
 
     def get_members(self, member_ids: list[int]) -> list[Members]:
-        statement = select(Members).where(Members.id.in_(member_ids))
+        statement = select(Members).where(Members.id.in_(member_ids))  # type: ignore[union-attr]
         return list(self.session.exec(statement).all())
 
     def is_event_processing(self, event_id: int) -> bool:
@@ -56,7 +56,7 @@ class DatabaseService:
             select(EmailServiceJob)
             .where(EmailServiceJob.event_id == event_id)
             .where(
-                EmailServiceJob.status.in_(
+                EmailServiceJob.status.in_(  # type: ignore[union-attr]
                     [
                         EmailServiceJobStatus.PENDING,
                         EmailServiceJobStatus.PROCESSING,
@@ -71,7 +71,7 @@ class DatabaseService:
             select(EmailServiceJob)
             .where(EmailServiceJob.event_id == event_id)
             .where(
-                EmailServiceJob.status.in_(
+                EmailServiceJob.status.in_(  # type: ignore[union-attr]
                     [
                         EmailServiceJobStatus.PENDING,
                         EmailServiceJobStatus.PROCESSING,
@@ -96,8 +96,8 @@ class DatabaseService:
                 completed=0,
                 successful=0,
                 failed=0,
-                created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow(),
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
             )
             self.session.add(job)
 
@@ -150,8 +150,8 @@ class DatabaseService:
                 completed=0,
                 successful=0,
                 failed=0,
-                created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow(),
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
             )
             self.session.add(job)
 
@@ -173,7 +173,7 @@ class DatabaseService:
         except Exception as e:
             self.session.rollback()
             raise TransactionError(
-                f"Failed to create custom certificate job",
+                "Failed to create custom certificate job",
                 details={
                     "event_name": event_name,
                     "recipient_count": len(recipients),
@@ -206,8 +206,8 @@ class DatabaseService:
                 completed=0,
                 successful=0,
                 failed=0,
-                created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow(),
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
             )
             self.session.add(job)
             self.session.flush()
@@ -235,7 +235,7 @@ class DatabaseService:
         except Exception as e:
             self.session.rollback()
             raise TransactionError(
-                f"Failed to create email blast job",
+                "Failed to create email blast job",
                 details={
                     "subject": subject,
                     "recipient_count": len(recipients),
@@ -273,13 +273,13 @@ class DatabaseService:
                 job.successful += 1
             if increment_failed:
                 job.failed += 1
-            job.updated_at = datetime.utcnow()
+            job.updated_at = datetime.now(timezone.utc)
 
             if (
                 status == EmailServiceJobStatus.COMPLETED
                 or status == EmailServiceJobStatus.FAILED
             ):
-                job.completed_at = datetime.utcnow()
+                job.completed_at = datetime.now(timezone.utc)
 
             self.session.add(job)
             self.session.commit()
@@ -316,7 +316,7 @@ class DatabaseService:
         statement = (
             select(EmailServiceRecipient)
             .where(EmailServiceRecipient.job_id == job_id)
-            .order_by(EmailServiceRecipient.id)
+            .order_by(EmailServiceRecipient.id)  # type: ignore[arg-type]
         )
         return list(self.session.exec(statement).all())
 
@@ -333,7 +333,7 @@ class DatabaseService:
         try:
             recipient.status = status
             if status == EmailServiceRecipientStatus.SENT:
-                recipient.sent_at = datetime.utcnow()
+                recipient.sent_at = datetime.now(timezone.utc)
             if error:
                 recipient.error = error
 
@@ -428,7 +428,7 @@ class DatabaseService:
                 EmailBlastDeliveryStatus.SENT,
                 EmailBlastDeliveryStatus.PARTIAL,
             ]:
-                blast.sent_at = datetime.utcnow()
+                blast.sent_at = datetime.now(timezone.utc)
 
             self.session.add(blast)
             self.session.commit()
@@ -452,7 +452,7 @@ class DatabaseService:
         limit: int = 50,
         offset: int = 0,
     ) -> list[EmailServiceJob]:
-        statement = select(EmailServiceJob).order_by(EmailServiceJob.created_at.desc())
+        statement = select(EmailServiceJob).order_by(EmailServiceJob.created_at.desc())  # type: ignore[union-attr]
 
         if event_id:
             statement = statement.where(EmailServiceJob.event_id == event_id)
@@ -536,6 +536,7 @@ class DatabaseService:
         if not recipient:
             return None
 
+        assert recipient.id, "Recipient ID should exist"
         certificate = self.get_certificate_for_recipient(recipient.id)
         if not certificate:
             return None

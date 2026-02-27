@@ -2,7 +2,6 @@ import smtplib
 import time
 import logging
 from email.message import EmailMessage
-from datetime import datetime
 from typing import Optional
 
 from app.core.config import settings
@@ -15,8 +14,6 @@ from app.db.schema import (
 from app.services.database import DatabaseService
 from app.core.exceptions import (
     JobNotFoundError,
-    RecordNotFoundError,
-    SmtpConnectionError,
 )
 
 from sqlmodel import Session
@@ -70,6 +67,7 @@ def process_email_blast_job(job_id: str) -> None:
 
         if not email_list:
             logger.error("No valid recipients found")
+            assert blast.id is not None, "Blast ID should exist"
             db.update_email_blast(
                 blast.id,
                 delivery_status=EmailBlastDeliveryStatus.FAILED,
@@ -107,7 +105,7 @@ def process_email_blast_job(job_id: str) -> None:
                         smtp.starttls()
                         smtp.login(settings.sender_email, settings.app_password)
                         smtp.send_message(msg)
-                        logger.info(f"Email blast sent successfully")
+                        logger.info("Email blast sent successfully")
                         sent_count = len(email_list)
                         break
                 except smtplib.SMTPException as e:
@@ -154,8 +152,10 @@ def process_email_blast_job(job_id: str) -> None:
         else:
             delivery_status = EmailBlastDeliveryStatus.FAILED
 
+        assert blast.id is not None, "Blast ID should exist"
+        blast_id = blast.id
         db.update_email_blast(
-            blast.id,
+            blast_id,
             delivery_status=delivery_status,
             sent_count=sent_count,
             failed_count=failed_count,

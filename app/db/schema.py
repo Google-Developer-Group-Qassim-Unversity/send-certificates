@@ -13,7 +13,7 @@ from sqlalchemy import (
     String,
     text,
 )
-from sqlalchemy.dialects.mysql import ENUM, INTEGER, TEXT, TINYINT, VARCHAR
+from sqlalchemy.dialects.mysql import INTEGER, TEXT, TINYINT, VARCHAR
 from sqlmodel import Field, Relationship, SQLModel
 
 
@@ -588,7 +588,9 @@ class EmailServiceRecipient(SQLModel, table=True):
         Index("email_service_recipients_email", "email"),
     )
 
-    id: int = Field(sa_column=Column("id", INTEGER, primary_key=True))
+    id: Optional[int] = Field(
+        default=None, sa_column=Column("id", INTEGER, primary_key=True)
+    )
     job_id: str = Field(sa_column=Column("job_id", VARCHAR(36), nullable=False))
     member_id: Optional[int] = Field(
         default=None,
@@ -639,7 +641,9 @@ class EmailServiceCertificate(SQLModel, table=True):
         Index("email_service_certificates_recipient_id", "recipient_id", unique=True),
     )
 
-    id: int = Field(sa_column=Column("id", INTEGER, primary_key=True))
+    id: Optional[int] = Field(
+        default=None, sa_column=Column("id", INTEGER, primary_key=True)
+    )
     recipient_id: int = Field(sa_column=Column("recipient_id", INTEGER, nullable=False))
     certificate_path: str = Field(
         sa_column=Column("certificate_path", VARCHAR(500), nullable=False)
@@ -671,7 +675,9 @@ class EmailServiceEmailBlast(SQLModel, table=True):
         Index("email_service_email_blasts_job_id", "job_id", unique=True),
     )
 
-    id: int = Field(sa_column=Column("id", INTEGER, primary_key=True))
+    id: Optional[int] = Field(
+        default=None, sa_column=Column("id", INTEGER, primary_key=True)
+    )
     job_id: str = Field(sa_column=Column("job_id", VARCHAR(36), nullable=False))
     subject: str = Field(sa_column=Column("subject", VARCHAR(500), nullable=False))
     body_html: str = Field(sa_column=Column("body_html", TEXT, nullable=False))

@@ -1,7 +1,7 @@
 import os
 import logging
 from dotenv import load_dotenv
-from sqlmodel import SQLModel, create_engine, Session
+from sqlmodel import create_engine, Session
 
 load_dotenv()
 
