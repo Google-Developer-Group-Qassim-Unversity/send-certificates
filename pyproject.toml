@@ -11,6 +11,9 @@ dependencies = [
     "python-dotenv>=1.1.1",
     "python-pptx>=1.0.2",
     "email-validator>=2.0.0",
+    "sqlmodel>=0.0.21",
+    "pymysql>=1.1.0",
+    "sqlacodegen>=4.0.0",
 ]
 
 # to run the server
