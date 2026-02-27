@@ -2,7 +2,7 @@ import logging
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends, status, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, status, Query
 from sqlmodel import Session
 
 from app.models.schemas import (
@@ -18,6 +18,13 @@ from app.db.session import get_session
 from app.db.schema import EmailServiceJobType
 from app.services.database import DatabaseService
 from app.services.email_blast import process_email_blast_job
+from app.core.exceptions import (
+    EventNotFoundError,
+    MemberNotFoundError,
+    JobNotFoundError,
+    RecordNotFoundError,
+    InvalidInputError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -47,12 +54,7 @@ async def create_email_blast(
 
     event_name = "Custom"
     if request.event_id:
-        event = db.get_event(request.event_id)
-        if not event:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Event with ID {request.event_id} not found",
-            )
+        event = db.get_event_or_raise(request.event_id)
         event_name = event.name
 
     recipients_data = []
@@ -60,9 +62,11 @@ async def create_email_blast(
         if r.member_id:
             member = db.get_member(r.member_id)
             if not member:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Member with ID {r.member_id} not found",
+                raise MemberNotFoundError(r.member_id)
+            if not member.email:
+                raise InvalidInputError(
+                    f"Member {r.member_id} has no email address",
+                    details={"member_id": r.member_id},
                 )
             recipients_data.append(
                 {
@@ -80,9 +84,9 @@ async def create_email_blast(
                 }
             )
         else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Each recipient must have either member_id or email specified",
+            raise InvalidInputError(
+                "Each recipient must have either member_id or email specified",
+                details={"recipient": r.model_dump()},
             )
 
     job, email_blast = db.create_email_blast_job(
@@ -155,7 +159,7 @@ async def list_email_blasts(
                     event_id=job.event_id,
                     event_name=event_name,
                     subject=blast.subject,
-                    delivery_status=blast.delivery_status,
+                    delivery_status=BlastDeliveryStatus(blast.delivery_status.value),  # type: ignore
                     sent_count=blast.sent_count,
                     failed_count=blast.failed_count,
                     total_recipients=job.total,
@@ -181,25 +185,16 @@ async def get_email_blast(
 ):
     db = DatabaseService(session)
 
-    job = db.get_job(job_id)
-    if not job:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Job with ID '{job_id}' not found",
-        )
+    job = db.get_job_or_raise(job_id)
 
     if job.job_type != EmailServiceJobType.EMAIL_BLAST:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Job {job_id} is not an email blast job",
+        raise RecordNotFoundError(
+            "EmailBlast",
+            job_id,
+            {"hint": f"Job {job_id} is not an email blast job (type: {job.job_type})"},
         )
 
-    blast = db.get_email_blast_for_job(job_id)
-    if not blast:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Email blast details not found for job {job_id}",
-        )
+    blast = db.get_email_blast_for_job_or_raise(job_id)
 
     event_name = get_event_name(db, job.event_id)
 
@@ -210,8 +205,8 @@ async def get_email_blast(
         subject=blast.subject,
         body_html=blast.body_html,
         body_text=blast.body_text,
-        is_templated=blast.is_templated,
-        delivery_status=blast.delivery_status,
+        is_templated=bool(blast.is_templated),
+        delivery_status=BlastDeliveryStatus(blast.delivery_status.value),  # type: ignore
         sent_count=blast.sent_count,
         failed_count=blast.failed_count,
         total_recipients=job.total,

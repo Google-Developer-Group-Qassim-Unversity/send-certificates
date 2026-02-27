@@ -1,7 +1,7 @@
 import logging
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, Depends, status, Query
+from fastapi import APIRouter, Depends, status, Query
 from sqlmodel import Session
 
 from app.models.schemas import (
@@ -20,6 +20,7 @@ from app.db.session import get_session
 from app.db.schema import EmailServiceJobType
 from app.services.database import DatabaseService
 from app.services.certificate import certificate_service
+from app.core.exceptions import JobNotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,7 @@ async def list_jobs(
 
     job_items = []
     for job in jobs:
-        event = db.get_event(job.event_id)
+        event = db.get_event(job.event_id) if job.event_id else None
         job_items.append(
             JobListItem(
                 job_id=job.id,
@@ -85,14 +86,9 @@ async def get_job_status(
 ):
     db = DatabaseService(session)
 
-    job = db.get_job(job_id)
-    if not job:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Job with ID '{job_id}' not found",
-        )
+    job = db.get_job_or_raise(job_id)
 
-    event = db.get_event(job.event_id)
+    event = db.get_event(job.event_id) if job.event_id else None
 
     return JobResponse(
         job_id=job.id,
@@ -123,19 +119,14 @@ async def get_job_recipients(
 ):
     db = DatabaseService(session)
 
-    job = db.get_job(job_id)
-    if not job:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Job with ID '{job_id}' not found",
-        )
+    job = db.get_job_or_raise(job_id)
 
-    event = db.get_event(job.event_id)
+    event = db.get_event(job.event_id) if job.event_id else None
     recipients = db.get_recipients_for_job(job_id)
 
     recipient_results = []
     for recipient in recipients:
-        member = db.get_member(recipient.member_id)
+        member = db.get_member(recipient.member_id) if recipient.member_id else None
         certificate = db.get_certificate_for_recipient(recipient.id)
 
         certificate_url = None
@@ -146,8 +137,8 @@ async def get_job_recipients(
             RecipientResult(
                 recipient_id=recipient.id,
                 member_id=recipient.member_id,
-                name=member.name if member else "Unknown",
-                email=member.email if member else None,
+                name=member.name if member else (recipient.name or "Unknown"),
+                email=member.email if member else recipient.email,
                 status=RecipientStatus(recipient.status.value),
                 sent_at=recipient.sent_at,
                 certificate_url=certificate_url,

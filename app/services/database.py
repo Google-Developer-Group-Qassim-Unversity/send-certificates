@@ -21,6 +21,12 @@ from app.db.schema import (
     EmailBlastDeliveryStatus,
 )
 from app.core.config import settings
+from app.core.exceptions import (
+    RecordNotFoundError,
+    TransactionError,
+    EventNotFoundError,
+    JobNotFoundError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +37,12 @@ class DatabaseService:
 
     def get_event(self, event_id: int) -> Optional[Events]:
         return self.session.get(Events, event_id)
+
+    def get_event_or_raise(self, event_id: int) -> Events:
+        event = self.get_event(event_id)
+        if not event:
+            raise EventNotFoundError(event_id)
+        return event
 
     def get_member(self, member_id: int) -> Optional[Members]:
         return self.session.get(Members, member_id)
@@ -74,31 +86,44 @@ class DatabaseService:
         event_id: int,
         member_ids: list[int],
     ) -> EmailServiceJob:
-        job = EmailServiceJob(
-            id=str(uuid.uuid4()),
-            event_id=event_id,
-            job_type=EmailServiceJobType.CERTIFICATE_EVENT,
-            status=EmailServiceJobStatus.PENDING,
-            total=len(member_ids),
-            completed=0,
-            successful=0,
-            failed=0,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
-        )
-        self.session.add(job)
-
-        for member_id in member_ids:
-            recipient = EmailServiceRecipient(
-                job_id=job.id,
-                member_id=member_id,
-                status=EmailServiceRecipientStatus.PENDING,
+        try:
+            job = EmailServiceJob(
+                id=str(uuid.uuid4()),
+                event_id=event_id,
+                job_type=EmailServiceJobType.CERTIFICATE_EVENT,
+                status=EmailServiceJobStatus.PENDING,
+                total=len(member_ids),
+                completed=0,
+                successful=0,
+                failed=0,
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow(),
             )
-            self.session.add(recipient)
+            self.session.add(job)
 
-        self.session.commit()
-        self.session.refresh(job)
-        return job
+            for member_id in member_ids:
+                recipient = EmailServiceRecipient(
+                    job_id=job.id,
+                    member_id=member_id,
+                    status=EmailServiceRecipientStatus.PENDING,
+                )
+                self.session.add(recipient)
+
+            self.session.commit()
+            self.session.refresh(job)
+
+            assert job.id, "Job ID should be set after commit"
+            return job
+        except Exception as e:
+            self.session.rollback()
+            raise TransactionError(
+                f"Failed to create certificate job for event {event_id}",
+                details={
+                    "event_id": event_id,
+                    "member_count": len(member_ids),
+                    "error": str(e),
+                },
+            ) from e
 
     def create_certificate_job_custom(
         self,
@@ -114,34 +139,47 @@ class DatabaseService:
             "official": official,
         }
 
-        job = EmailServiceJob(
-            id=str(uuid.uuid4()),
-            event_id=event_id,
-            job_type=EmailServiceJobType.CERTIFICATE_CUSTOM,
-            job_config=job_config,
-            status=EmailServiceJobStatus.PENDING,
-            total=len(recipients),
-            completed=0,
-            successful=0,
-            failed=0,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
-        )
-        self.session.add(job)
-
-        for r in recipients:
-            recipient = EmailServiceRecipient(
-                job_id=job.id,
-                email=r.get("email"),
-                name=r.get("name"),
-                custom_data=r.get("custom_data"),
-                status=EmailServiceRecipientStatus.PENDING,
+        try:
+            job = EmailServiceJob(
+                id=str(uuid.uuid4()),
+                event_id=event_id,
+                job_type=EmailServiceJobType.CERTIFICATE_CUSTOM,
+                job_config=job_config,
+                status=EmailServiceJobStatus.PENDING,
+                total=len(recipients),
+                completed=0,
+                successful=0,
+                failed=0,
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow(),
             )
-            self.session.add(recipient)
+            self.session.add(job)
 
-        self.session.commit()
-        self.session.refresh(job)
-        return job
+            for r in recipients:
+                recipient = EmailServiceRecipient(
+                    job_id=job.id,
+                    email=r.get("email"),
+                    name=r.get("name"),
+                    custom_data=r.get("custom_data"),
+                    status=EmailServiceRecipientStatus.PENDING,
+                )
+                self.session.add(recipient)
+
+            self.session.commit()
+            self.session.refresh(job)
+
+            assert job.id, "Job ID should be set after commit"
+            return job
+        except Exception as e:
+            self.session.rollback()
+            raise TransactionError(
+                f"Failed to create custom certificate job",
+                details={
+                    "event_name": event_name,
+                    "recipient_count": len(recipients),
+                    "error": str(e),
+                },
+            ) from e
 
     def create_email_blast_job(
         self,
@@ -157,42 +195,62 @@ class DatabaseService:
             "recipients": recipients,
         }
 
-        job = EmailServiceJob(
-            id=str(uuid.uuid4()),
-            event_id=event_id,
-            job_type=EmailServiceJobType.EMAIL_BLAST,
-            job_config=job_config,
-            status=EmailServiceJobStatus.PENDING,
-            total=len(recipients),
-            completed=0,
-            successful=0,
-            failed=0,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
-        )
-        self.session.add(job)
-        self.session.flush()
+        try:
+            job = EmailServiceJob(
+                id=str(uuid.uuid4()),
+                event_id=event_id,
+                job_type=EmailServiceJobType.EMAIL_BLAST,
+                job_config=job_config,
+                status=EmailServiceJobStatus.PENDING,
+                total=len(recipients),
+                completed=0,
+                successful=0,
+                failed=0,
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow(),
+            )
+            self.session.add(job)
+            self.session.flush()
 
-        email_blast = EmailServiceEmailBlast(
-            job_id=job.id,
-            subject=subject,
-            body_html=body_html,
-            body_text=body_text,
-            is_templated=1 if is_templated else 0,
-            delivery_status=EmailBlastDeliveryStatus.PENDING,
-            sent_count=0,
-            failed_count=0,
-            failed_recipients=[],
-        )
-        self.session.add(email_blast)
+            email_blast = EmailServiceEmailBlast(
+                job_id=job.id,
+                subject=subject,
+                body_html=body_html,
+                body_text=body_text,
+                is_templated=1 if is_templated else 0,
+                delivery_status=EmailBlastDeliveryStatus.PENDING,
+                sent_count=0,
+                failed_count=0,
+                failed_recipients=[],
+            )
+            self.session.add(email_blast)
 
-        self.session.commit()
-        self.session.refresh(job)
-        self.session.refresh(email_blast)
-        return job, email_blast
+            self.session.commit()
+            self.session.refresh(job)
+            self.session.refresh(email_blast)
+
+            assert job.id, "Job ID should be set after commit"
+            assert email_blast.id, "Email blast ID should be set after commit"
+            return job, email_blast
+        except Exception as e:
+            self.session.rollback()
+            raise TransactionError(
+                f"Failed to create email blast job",
+                details={
+                    "subject": subject,
+                    "recipient_count": len(recipients),
+                    "error": str(e),
+                },
+            ) from e
 
     def get_job(self, job_id: str) -> Optional[EmailServiceJob]:
         return self.session.get(EmailServiceJob, job_id)
+
+    def get_job_or_raise(self, job_id: str) -> EmailServiceJob:
+        job = self.get_job(job_id)
+        if not job:
+            raise JobNotFoundError(job_id)
+        return job
 
     def update_job_status(
         self,
@@ -204,26 +262,52 @@ class DatabaseService:
     ) -> None:
         job = self.session.get(EmailServiceJob, job_id)
         if not job:
-            return
+            raise JobNotFoundError(job_id)
 
-        if status:
-            job.status = status
-        if increment_completed:
-            job.completed += 1
-        if increment_successful:
-            job.successful += 1
-        if increment_failed:
-            job.failed += 1
-        job.updated_at = datetime.utcnow()
+        try:
+            if status:
+                job.status = status
+            if increment_completed:
+                job.completed += 1
+            if increment_successful:
+                job.successful += 1
+            if increment_failed:
+                job.failed += 1
+            job.updated_at = datetime.utcnow()
 
-        if (
-            status == EmailServiceJobStatus.COMPLETED
-            or status == EmailServiceJobStatus.FAILED
-        ):
-            job.completed_at = datetime.utcnow()
+            if (
+                status == EmailServiceJobStatus.COMPLETED
+                or status == EmailServiceJobStatus.FAILED
+            ):
+                job.completed_at = datetime.utcnow()
 
-        self.session.add(job)
-        self.session.commit()
+            self.session.add(job)
+            self.session.commit()
+
+            assert job.completed <= job.total, (
+                f"Invariant violated: completed ({job.completed}) > total ({job.total}) for job {job_id}"
+            )
+            assert job.successful <= job.completed, (
+                f"Invariant violated: successful ({job.successful}) > completed ({job.completed}) for job {job_id}"
+            )
+            assert job.failed <= job.completed, (
+                f"Invariant violated: failed ({job.failed}) > completed ({job.completed}) for job {job_id}"
+            )
+            assert job.successful + job.failed <= job.completed, (
+                f"Invariant violated: successful + failed ({job.successful + job.failed}) > completed ({job.completed}) for job {job_id}"
+            )
+
+        except JobNotFoundError:
+            raise
+        except AssertionError:
+            self.session.rollback()
+            raise
+        except Exception as e:
+            self.session.rollback()
+            raise TransactionError(
+                f"Failed to update job status for {job_id}",
+                details={"job_id": job_id, "error": str(e)},
+            ) from e
 
     def get_recipient(self, recipient_id: int) -> Optional[EmailServiceRecipient]:
         return self.session.get(EmailServiceRecipient, recipient_id)
@@ -244,16 +328,25 @@ class DatabaseService:
     ) -> None:
         recipient = self.session.get(EmailServiceRecipient, recipient_id)
         if not recipient:
-            return
+            raise RecordNotFoundError("Recipient", recipient_id)
 
-        recipient.status = status
-        if status == EmailServiceRecipientStatus.SENT:
-            recipient.sent_at = datetime.utcnow()
-        if error:
-            recipient.error = error
+        try:
+            recipient.status = status
+            if status == EmailServiceRecipientStatus.SENT:
+                recipient.sent_at = datetime.utcnow()
+            if error:
+                recipient.error = error
 
-        self.session.add(recipient)
-        self.session.commit()
+            self.session.add(recipient)
+            self.session.commit()
+        except RecordNotFoundError:
+            raise
+        except Exception as e:
+            self.session.rollback()
+            raise TransactionError(
+                f"Failed to update recipient status for {recipient_id}",
+                details={"recipient_id": recipient_id, "error": str(e)},
+            ) from e
 
     def create_certificate(
         self,
@@ -261,15 +354,28 @@ class DatabaseService:
         certificate_path: str,
         template_type: EmailServiceTemplateType,
     ) -> EmailServiceCertificate:
-        certificate = EmailServiceCertificate(
-            recipient_id=recipient_id,
-            certificate_path=certificate_path,
-            template_type=template_type,
-        )
-        self.session.add(certificate)
-        self.session.commit()
-        self.session.refresh(certificate)
-        return certificate
+        try:
+            certificate = EmailServiceCertificate(
+                recipient_id=recipient_id,
+                certificate_path=certificate_path,
+                template_type=template_type,
+            )
+            self.session.add(certificate)
+            self.session.commit()
+            self.session.refresh(certificate)
+
+            assert certificate.id, "Certificate ID should be set after commit"
+            return certificate
+        except Exception as e:
+            self.session.rollback()
+            raise TransactionError(
+                f"Failed to create certificate for recipient {recipient_id}",
+                details={
+                    "recipient_id": recipient_id,
+                    "certificate_path": certificate_path,
+                    "error": str(e),
+                },
+            ) from e
 
     def get_certificate_for_recipient(
         self, recipient_id: int
@@ -285,6 +391,14 @@ class DatabaseService:
         )
         return self.session.exec(statement).first()
 
+    def get_email_blast_for_job_or_raise(self, job_id: str) -> EmailServiceEmailBlast:
+        blast = self.get_email_blast_for_job(job_id)
+        if not blast:
+            raise RecordNotFoundError(
+                "EmailBlast", job_id, {"context": "email_blast_for_job"}
+            )
+        return blast
+
     def update_email_blast(
         self,
         blast_id: int,
@@ -296,29 +410,40 @@ class DatabaseService:
     ) -> EmailServiceEmailBlast:
         blast = self.session.get(EmailServiceEmailBlast, blast_id)
         if not blast:
-            raise ValueError(f"Email blast {blast_id} not found")
+            raise RecordNotFoundError("EmailBlast", blast_id)
 
-        if delivery_status:
-            blast.delivery_status = delivery_status
-        if sent_count is not None:
-            blast.sent_count = sent_count
-        if failed_count is not None:
-            blast.failed_count = failed_count
-        if failed_recipients is not None:
-            blast.failed_recipients = failed_recipients
-        if provider_response is not None:
-            blast.provider_response = provider_response
+        try:
+            if delivery_status:
+                blast.delivery_status = delivery_status
+            if sent_count is not None:
+                blast.sent_count = sent_count
+            if failed_count is not None:
+                blast.failed_count = failed_count
+            if failed_recipients is not None:
+                blast.failed_recipients = failed_recipients
+            if provider_response is not None:
+                blast.provider_response = provider_response
 
-        if delivery_status in [
-            EmailBlastDeliveryStatus.SENT,
-            EmailBlastDeliveryStatus.PARTIAL,
-        ]:
-            blast.sent_at = datetime.utcnow()
+            if delivery_status in [
+                EmailBlastDeliveryStatus.SENT,
+                EmailBlastDeliveryStatus.PARTIAL,
+            ]:
+                blast.sent_at = datetime.utcnow()
 
-        self.session.add(blast)
-        self.session.commit()
-        self.session.refresh(blast)
-        return blast
+            self.session.add(blast)
+            self.session.commit()
+            self.session.refresh(blast)
+
+            assert blast.id, "Blast ID should exist after commit"
+            return blast
+        except RecordNotFoundError:
+            raise
+        except Exception as e:
+            self.session.rollback()
+            raise TransactionError(
+                f"Failed to update email blast {blast_id}",
+                details={"blast_id": blast_id, "error": str(e)},
+            ) from e
 
     def list_jobs(
         self,
@@ -418,6 +543,11 @@ class DatabaseService:
         file_path = Path(settings.certificates_folder) / certificate.certificate_path
         if file_path.exists():
             return file_path
+
+        logger.warning(
+            f"DB-FS inconsistency: certificate record exists but file missing at {file_path}",
+            extra={"job_id": job_id, "member_id": member_id, "path": str(file_path)},
+        )
         return None
 
     def get_recipient_by_email(

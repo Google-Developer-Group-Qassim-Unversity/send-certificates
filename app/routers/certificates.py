@@ -1,7 +1,7 @@
 import logging
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends, status
+from fastapi import APIRouter, BackgroundTasks, Depends, status
 from fastapi.responses import FileResponse
 from sqlmodel import Session
 
@@ -21,6 +21,13 @@ from app.services.certificate import (
     process_certificate_custom_job,
 )
 from app.core.config import settings
+from app.core.exceptions import (
+    EventNotFoundError,
+    MemberNotFoundError,
+    JobNotFoundError,
+    JobAlreadyProcessingError,
+    RecordNotFoundError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -41,27 +48,21 @@ async def create_certificates(
 ):
     db = DatabaseService(session)
 
-    event = db.get_event(request.event_id)
-    if not event:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Event with ID {request.event_id} not found",
-        )
+    event = db.get_event_or_raise(request.event_id)
 
     if db.is_event_processing(request.event_id):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Event '{event.name}' is already being processed. Please wait until it completes.",
-        )
+        raise JobAlreadyProcessingError(request.event_id, event.name)
 
     members = db.get_members(request.member_ids)
     found_ids = {m.id for m in members}
     missing_ids = set(request.member_ids) - found_ids
+
+    assert len(found_ids) == len(members), (
+        f"Duplicate members in result: expected {len(request.member_ids)}, got {len(members)} unique"
+    )
+
     if missing_ids:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Members not found: {sorted(missing_ids)}",
-        )
+        raise MemberNotFoundError(list(missing_ids)[0])
 
     job = db.create_certificate_job_for_event(
         event_id=request.event_id,
@@ -109,12 +110,7 @@ async def create_custom_certificates(
     db = DatabaseService(session)
 
     if request.event_id:
-        event = db.get_event(request.event_id)
-        if not event:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Event with ID {request.event_id} not found",
-            )
+        db.get_event_or_raise(request.event_id)
 
     recipients_data = [r.model_dump() for r in request.recipients]
 
@@ -164,12 +160,7 @@ async def download_certificate(
 ):
     db = DatabaseService(session)
 
-    job = db.get_job(job_id)
-    if not job:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Job with ID '{job_id}' not found",
-        )
+    job = db.get_job_or_raise(job_id)
 
     file_path = None
 
@@ -177,36 +168,32 @@ async def download_certificate(
         try:
             member_id = int(member_id_or_email)
         except ValueError:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="For certificate_event jobs, member_id must be an integer",
+            raise RecordNotFoundError(
+                "Member",
+                member_id_or_email,
+                {"hint": "For certificate_event jobs, member_id must be an integer"},
             )
         file_path = db.get_certificate_path_from_db(job_id, member_id)
+        if file_path is None:
+            raise RecordNotFoundError("Certificate", member_id_or_email)
+
     elif job.job_type == EmailServiceJobType.CERTIFICATE_CUSTOM:
         recipient = db.get_recipient_by_email(job_id, member_id_or_email)
         if not recipient:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Recipient with email '{member_id_or_email}' not found in job {job_id}",
-            )
+            raise RecordNotFoundError("Recipient", member_id_or_email)
         certificate = db.get_certificate_for_recipient(recipient.id)
         if not certificate:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Certificate for '{member_id_or_email}' not found",
-            )
+            raise RecordNotFoundError("Certificate", member_id_or_email)
         file_path = Path(settings.certificates_folder) / certificate.certificate_path
     else:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid job type for certificate download: {job.job_type}",
+        raise RecordNotFoundError(
+            "Job",
+            job_id,
+            {"hint": f"Invalid job type for certificate download: {job.job_type}"},
         )
 
     if not file_path or not file_path.exists():
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Certificate file not found",
-        )
+        raise RecordNotFoundError("CertificateFile", str(file_path))
 
     return FileResponse(
         path=file_path,
