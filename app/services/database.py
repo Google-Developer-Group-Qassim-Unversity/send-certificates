@@ -3,9 +3,9 @@ import uuid
 import logging
 from pathlib import Path
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Any
 
-from sqlmodel import Session, select
+from sqlmodel import Session, select, func
 
 from app.db.schema import (
     Events,
@@ -13,10 +13,12 @@ from app.db.schema import (
     EmailServiceJob,
     EmailServiceRecipient,
     EmailServiceCertificate,
+    EmailServiceEmailBlast,
     EmailServiceJobType,
     EmailServiceJobStatus,
     EmailServiceRecipientStatus,
     EmailServiceTemplateType,
+    EmailBlastDeliveryStatus,
 )
 from app.core.config import settings
 
@@ -67,16 +69,15 @@ class DatabaseService:
         )
         return self.session.exec(statement).first()
 
-    def create_job(
+    def create_certificate_job_for_event(
         self,
         event_id: int,
         member_ids: list[int],
-        job_type: EmailServiceJobType = EmailServiceJobType.CERTIFICATE,
     ) -> EmailServiceJob:
         job = EmailServiceJob(
             id=str(uuid.uuid4()),
             event_id=event_id,
-            job_type=job_type,
+            job_type=EmailServiceJobType.CERTIFICATE_EVENT,
             status=EmailServiceJobStatus.PENDING,
             total=len(member_ids),
             completed=0,
@@ -98,6 +99,97 @@ class DatabaseService:
         self.session.commit()
         self.session.refresh(job)
         return job
+
+    def create_certificate_job_custom(
+        self,
+        recipients: list[dict],
+        event_name: str,
+        event_date: str,
+        official: bool,
+        event_id: Optional[int] = None,
+    ) -> EmailServiceJob:
+        job_config = {
+            "event_name": event_name,
+            "event_date": event_date,
+            "official": official,
+        }
+
+        job = EmailServiceJob(
+            id=str(uuid.uuid4()),
+            event_id=event_id,
+            job_type=EmailServiceJobType.CERTIFICATE_CUSTOM,
+            job_config=job_config,
+            status=EmailServiceJobStatus.PENDING,
+            total=len(recipients),
+            completed=0,
+            successful=0,
+            failed=0,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+        self.session.add(job)
+
+        for r in recipients:
+            recipient = EmailServiceRecipient(
+                job_id=job.id,
+                email=r.get("email"),
+                name=r.get("name"),
+                custom_data=r.get("custom_data"),
+                status=EmailServiceRecipientStatus.PENDING,
+            )
+            self.session.add(recipient)
+
+        self.session.commit()
+        self.session.refresh(job)
+        return job
+
+    def create_email_blast_job(
+        self,
+        subject: str,
+        body_html: str,
+        recipients: list[dict],
+        body_text: Optional[str] = None,
+        is_templated: bool = False,
+        event_id: Optional[int] = None,
+    ) -> tuple[EmailServiceJob, EmailServiceEmailBlast]:
+        job_config = {
+            "is_templated": is_templated,
+            "recipients": recipients,
+        }
+
+        job = EmailServiceJob(
+            id=str(uuid.uuid4()),
+            event_id=event_id,
+            job_type=EmailServiceJobType.EMAIL_BLAST,
+            job_config=job_config,
+            status=EmailServiceJobStatus.PENDING,
+            total=len(recipients),
+            completed=0,
+            successful=0,
+            failed=0,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+        self.session.add(job)
+        self.session.flush()
+
+        email_blast = EmailServiceEmailBlast(
+            job_id=job.id,
+            subject=subject,
+            body_html=body_html,
+            body_text=body_text,
+            is_templated=1 if is_templated else 0,
+            delivery_status=EmailBlastDeliveryStatus.PENDING,
+            sent_count=0,
+            failed_count=0,
+            failed_recipients=[],
+        )
+        self.session.add(email_blast)
+
+        self.session.commit()
+        self.session.refresh(job)
+        self.session.refresh(email_blast)
+        return job, email_blast
 
     def get_job(self, job_id: str) -> Optional[EmailServiceJob]:
         return self.session.get(EmailServiceJob, job_id)
@@ -187,6 +279,47 @@ class DatabaseService:
         )
         return self.session.exec(statement).first()
 
+    def get_email_blast_for_job(self, job_id: str) -> Optional[EmailServiceEmailBlast]:
+        statement = select(EmailServiceEmailBlast).where(
+            EmailServiceEmailBlast.job_id == job_id
+        )
+        return self.session.exec(statement).first()
+
+    def update_email_blast(
+        self,
+        blast_id: int,
+        delivery_status: Optional[EmailBlastDeliveryStatus] = None,
+        sent_count: Optional[int] = None,
+        failed_count: Optional[int] = None,
+        failed_recipients: Optional[list] = None,
+        provider_response: Optional[dict] = None,
+    ) -> EmailServiceEmailBlast:
+        blast = self.session.get(EmailServiceEmailBlast, blast_id)
+        if not blast:
+            raise ValueError(f"Email blast {blast_id} not found")
+
+        if delivery_status:
+            blast.delivery_status = delivery_status
+        if sent_count is not None:
+            blast.sent_count = sent_count
+        if failed_count is not None:
+            blast.failed_count = failed_count
+        if failed_recipients is not None:
+            blast.failed_recipients = failed_recipients
+        if provider_response is not None:
+            blast.provider_response = provider_response
+
+        if delivery_status in [
+            EmailBlastDeliveryStatus.SENT,
+            EmailBlastDeliveryStatus.PARTIAL,
+        ]:
+            blast.sent_at = datetime.utcnow()
+
+        self.session.add(blast)
+        self.session.commit()
+        self.session.refresh(blast)
+        return blast
+
     def list_jobs(
         self,
         event_id: Optional[int] = None,
@@ -209,14 +342,14 @@ class DatabaseService:
         event_id: Optional[int] = None,
         job_type: Optional[EmailServiceJobType] = None,
     ) -> int:
-        statement = select(EmailServiceJob)
+        statement = select(func.count()).select_from(EmailServiceJob)
 
         if event_id:
             statement = statement.where(EmailServiceJob.event_id == event_id)
         if job_type:
             statement = statement.where(EmailServiceJob.job_type == job_type)
 
-        return len(list(self.session.exec(statement).all()))
+        return self.session.exec(statement).one()
 
     @staticmethod
     def sanitize_filename(name: str) -> str:
@@ -224,7 +357,7 @@ class DatabaseService:
         safe = re.sub(r"\s+", "-", safe.strip())
         return safe
 
-    def get_certificate_storage_path(
+    def get_certificate_storage_path_for_event(
         self,
         event_id: int,
         event_name: str,
@@ -238,6 +371,27 @@ class DatabaseService:
 
         safe_member_name = self.sanitize_filename(member_name)
         filename = f"{member_id}-{safe_member_name}.pdf"
+
+        full_path = base_path / event_folder / filename
+        full_path.parent.mkdir(parents=True, exist_ok=True)
+
+        return full_path
+
+    def get_certificate_storage_path_custom(
+        self,
+        job_id: str,
+        event_name: str,
+        recipient_email: str,
+        recipient_name: str,
+    ) -> Path:
+        base_path = Path(settings.certificates_folder)
+
+        safe_event_name = self.sanitize_filename(event_name)
+        event_folder = f"custom-{job_id[:8]}-{safe_event_name}"
+
+        safe_recipient_name = self.sanitize_filename(recipient_name)
+        safe_email = self.sanitize_filename(recipient_email)
+        filename = f"{safe_email}-{safe_recipient_name}.pdf"
 
         full_path = base_path / event_folder / filename
         full_path.parent.mkdir(parents=True, exist_ok=True)
@@ -265,3 +419,13 @@ class DatabaseService:
         if file_path.exists():
             return file_path
         return None
+
+    def get_recipient_by_email(
+        self, job_id: str, email: str
+    ) -> Optional[EmailServiceRecipient]:
+        statement = (
+            select(EmailServiceRecipient)
+            .where(EmailServiceRecipient.job_id == job_id)
+            .where(EmailServiceRecipient.email == email)
+        )
+        return self.session.exec(statement).first()

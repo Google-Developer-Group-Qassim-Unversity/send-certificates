@@ -360,4 +360,229 @@ def process_certificates_job(
         logger.info(f"Job {job_id} completed")
 
 
+def process_certificate_event_job(job_id: str) -> None:
+    service = CertificateService()
+    
+    with Session(engine) as session:
+        db = DatabaseService(session)
+        
+        job = db.get_job(job_id)
+        if not job:
+            logger.error(f"Job {job_id} not found")
+            return
+        
+        event_id = job.event_id
+        if not event_id:
+            logger.error(f"Job {job_id} has no event_id")
+            db.update_job_status(job_id, status=EmailServiceJobStatus.FAILED)
+            return
+        
+        event = db.get_event(event_id)
+        if not event:
+            logger.error(f"Event {event_id} not found")
+            db.update_job_status(job_id, status=EmailServiceJobStatus.FAILED)
+            return
+        
+        db.update_job_status(job_id, status=EmailServiceJobStatus.PROCESSING)
+        
+        template_type = (
+            EmailServiceTemplateType.OFFICIAL
+            if event.is_official
+            else EmailServiceTemplateType.UNOFFICIAL
+        )
+        template_path = service.get_template_path(bool(event.is_official))
+        
+        event_date = event.start_datetime.strftime("%Y-%m-%d")
+        
+        recipients = db.get_recipients_for_job(job_id)
+        
+        for recipient in recipients:
+            if not recipient.member_id:
+                db.update_recipient_status(
+                    recipient.id,
+                    EmailServiceRecipientStatus.FAILED,
+                    error="No member_id associated",
+                )
+                db.update_job_status(job_id, increment_completed=True, increment_failed=True)
+                continue
+            
+            member = db.get_member(recipient.member_id)
+            if not member:
+                logger.error(f"Member {recipient.member_id} not found")
+                db.update_recipient_status(
+                    recipient.id,
+                    EmailServiceRecipientStatus.FAILED,
+                    error="Member not found in database",
+                )
+                db.update_job_status(job_id, increment_completed=True, increment_failed=True)
+                continue
+            
+            logger.info(f"Processing member {member.id}: {member.name}")
+            
+            try:
+                output_folder = Path(settings.certificates_folder) / f"{event_id}-{db.sanitize_filename(event.name)}"
+                output_folder.mkdir(parents=True, exist_ok=True)
+                
+                pptx_path = service.replace_placeholder(
+                    name=member.name,
+                    event_name=event.name,
+                    date=event_date,
+                    template_path=template_path,
+                    output_folder=output_folder,
+                )
+                
+                pdf_path = service.pptx_to_pdf(pptx_path, output_folder)
+                
+                if pdf_path is None:
+                    db.update_recipient_status(
+                        recipient.id,
+                        EmailServiceRecipientStatus.FAILED,
+                        error="PDF conversion failed",
+                    )
+                    db.update_job_status(job_id, increment_completed=True, increment_failed=True)
+                    continue
+                
+                relative_path = f"{event_id}-{db.sanitize_filename(event.name)}/{pdf_path.name}"
+                db.create_certificate(
+                    recipient_id=recipient.id,
+                    certificate_path=relative_path,
+                    template_type=template_type,
+                )
+                
+                if not member.email:
+                    db.update_recipient_status(
+                        recipient.id,
+                        EmailServiceRecipientStatus.FAILED,
+                        error="Member has no email address",
+                    )
+                    db.update_job_status(job_id, increment_completed=True, increment_failed=True)
+                    continue
+                
+                success, error = service.send_email(
+                    recipient=member.email,
+                    name=member.name,
+                    event_name=event.name,
+                    pdf_path=pdf_path,
+                )
+                
+                if success:
+                    db.update_recipient_status(recipient.id, EmailServiceRecipientStatus.SENT)
+                    db.update_job_status(job_id, increment_completed=True, increment_successful=True)
+                else:
+                    db.update_recipient_status(recipient.id, EmailServiceRecipientStatus.FAILED, error=error)
+                    db.update_job_status(job_id, increment_completed=True, increment_failed=True)
+                
+                try:
+                    pptx_path.unlink()
+                except Exception:
+                    pass
+                
+            except Exception as e:
+                logger.exception(f"Error processing {member.name}: {e}")
+                db.update_recipient_status(recipient.id, EmailServiceRecipientStatus.FAILED, error=str(e))
+                db.update_job_status(job_id, increment_completed=True, increment_failed=True)
+        
+        job = db.get_job(job_id)
+        if job and job.failed == job.total:
+            db.update_job_status(job_id, status=EmailServiceJobStatus.FAILED)
+        else:
+            db.update_job_status(job_id, status=EmailServiceJobStatus.COMPLETED)
+        
+        logger.info(f"Job {job_id} completed")
+
+
+def process_certificate_custom_job(job_id: str) -> None:
+    service = CertificateService()
+    
+    with Session(engine) as session:
+        db = DatabaseService(session)
+        
+        job = db.get_job(job_id)
+        if not job:
+            logger.error(f"Job {job_id} not found")
+            return
+        
+        job_config = job.job_config or {}
+        event_name = job_config.get("event_name", "Unknown Event")
+        event_date = job_config.get("event_date", datetime.utcnow().strftime("%Y-%m-%d"))
+        official = job_config.get("official", False)
+        
+        db.update_job_status(job_id, status=EmailServiceJobStatus.PROCESSING)
+        
+        template_type = EmailServiceTemplateType.OFFICIAL if official else EmailServiceTemplateType.UNOFFICIAL
+        template_path = service.get_template_path(official)
+        
+        recipients = db.get_recipients_for_job(job_id)
+        
+        for recipient in recipients:
+            name = recipient.name or "Unknown"
+            email = recipient.email
+            
+            if not email:
+                logger.error(f"Recipient {recipient.id} has no email address")
+                db.update_recipient_status(recipient.id, EmailServiceRecipientStatus.FAILED, error="No email address")
+                db.update_job_status(job_id, increment_completed=True, increment_failed=True)
+                continue
+            
+            logger.info(f"Processing recipient: {name} ({email})")
+            
+            try:
+                output_folder = Path(settings.certificates_folder) / f"custom-{job_id[:8]}"
+                output_folder.mkdir(parents=True, exist_ok=True)
+                
+                pptx_path = service.replace_placeholder(
+                    name=name,
+                    event_name=event_name,
+                    date=event_date,
+                    template_path=template_path,
+                    output_folder=output_folder,
+                )
+                
+                pdf_path = service.pptx_to_pdf(pptx_path, output_folder)
+                
+                if pdf_path is None:
+                    db.update_recipient_status(recipient.id, EmailServiceRecipientStatus.FAILED, error="PDF conversion failed")
+                    db.update_job_status(job_id, increment_completed=True, increment_failed=True)
+                    continue
+                
+                relative_path = f"custom-{job_id[:8]}/{pdf_path.name}"
+                db.create_certificate(
+                    recipient_id=recipient.id,
+                    certificate_path=relative_path,
+                    template_type=template_type,
+                )
+                
+                success, error = service.send_email(
+                    recipient=email,
+                    name=name,
+                    event_name=event_name,
+                    pdf_path=pdf_path,
+                )
+                
+                if success:
+                    db.update_recipient_status(recipient.id, EmailServiceRecipientStatus.SENT)
+                    db.update_job_status(job_id, increment_completed=True, increment_successful=True)
+                else:
+                    db.update_recipient_status(recipient.id, EmailServiceRecipientStatus.FAILED, error=error)
+                    db.update_job_status(job_id, increment_completed=True, increment_failed=True)
+                
+                try:
+                    pptx_path.unlink()
+                except Exception:
+                    pass
+                
+            except Exception as e:
+                logger.exception(f"Error processing {name}: {e}")
+                db.update_recipient_status(recipient.id, EmailServiceRecipientStatus.FAILED, error=str(e))
+                db.update_job_status(job_id, increment_completed=True, increment_failed=True)
+        
+        job = db.get_job(job_id)
+        if job and job.failed == job.total:
+            db.update_job_status(job_id, status=EmailServiceJobStatus.FAILED)
+        else:
+            db.update_job_status(job_id, status=EmailServiceJobStatus.COMPLETED)
+        
+        logger.info(f"Job {job_id} completed")
+
+
 certificate_service = CertificateService()

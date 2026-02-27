@@ -4,7 +4,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.core.config import settings
-from app.routers import certificates, status
+from app.routers import certificates, status, email_blasts
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -32,6 +33,7 @@ app = FastAPI(
 )
 
 app.include_router(certificates.router)
+app.include_router(email_blasts.router)
 app.include_router(status.router)
 
 

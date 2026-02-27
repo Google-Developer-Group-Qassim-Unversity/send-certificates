@@ -23,6 +23,7 @@ from app.db.schema import (
     EmailServiceJob,
     EmailServiceRecipient,
     EmailServiceCertificate,
+    EmailServiceEmailBlast,
 )
 
 target_metadata = SQLModel.metadata

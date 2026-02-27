@@ -13,10 +13,12 @@ from app.db.schema import (
     EmailServiceJob,
     EmailServiceRecipient,
     EmailServiceCertificate,
+    EmailServiceEmailBlast,
     EmailServiceJobType,
     EmailServiceJobStatus,
     EmailServiceRecipientStatus,
     EmailServiceTemplateType,
+    EmailBlastDeliveryStatus,
 )
 
 __all__ = [
@@ -34,8 +36,10 @@ __all__ = [
     "EmailServiceJob",
     "EmailServiceRecipient",
     "EmailServiceCertificate",
+    "EmailServiceEmailBlast",
     "EmailServiceJobType",
     "EmailServiceJobStatus",
     "EmailServiceRecipientStatus",
     "EmailServiceTemplateType",
+    "EmailBlastDeliveryStatus",
 ]
