@@ -499,7 +499,15 @@ class EmailBlastDeliveryStatus(str, enum.Enum):
 
 class EmailServiceJob(SQLModel, table=True):
     __tablename__ = "email_service_jobs"
-    __table_args__ = (Index("email_service_jobs_event_id", "event_id"),)
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["event_id"],
+            ["events.id"],
+            ondelete="SET NULL",
+            name="email_service_jobs_event_fk",
+        ),
+        Index("email_service_jobs_event_id", "event_id"),
+    )
 
     id: str = Field(sa_column=Column("id", VARCHAR(36), primary_key=True))
     event_id: Optional[int] = Field(
@@ -564,6 +572,7 @@ class EmailServiceJob(SQLModel, table=True):
 
     recipients: list["EmailServiceRecipient"] = Relationship(back_populates="job")
     email_blast: Optional["EmailServiceEmailBlast"] = Relationship(back_populates="job")
+    event: Optional["Events"] = Relationship()
 
 
 class EmailServiceRecipient(SQLModel, table=True):

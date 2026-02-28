@@ -8,8 +8,11 @@ load_dotenv()
 
 # ============ CONFIGURATION VARIABLES ============
 
-# Environment: production or development (default: production)
-ENVIRONMENT = os.getenv("ENVIRONMENT", "production").lower()
+ENVIRONMENT = os.getenv("ENV", "production").lower()
+is_dev = ENVIRONMENT == "development"
+
+CLERK_PROD = "https://clerk.gdg-q.com/.well-known/jwks.json"
+CLERK_DEV = "https://quality-ram-46.clerk.accounts.dev/.well-known/jwks.json"
 
 # Email settings (required from .env)
 APP_PASSWORD = os.getenv("APP_PASSWORD", "")

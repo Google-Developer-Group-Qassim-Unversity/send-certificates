@@ -21,6 +21,7 @@ from app.core.exceptions import (
     RecordNotFoundError,
     InvalidInputError,
 )
+from app.core.auth import admin_guard
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,7 @@ async def create_email_blast(
     request: EmailBlastRequest,
     background_tasks: BackgroundTasks,
     session: Session = Depends(get_session),
+    credentials=Depends(admin_guard),
 ):
     db = DatabaseService(session)
 
@@ -129,6 +131,7 @@ async def list_email_blasts(
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
     session: Session = Depends(get_session),
+    credentials=Depends(admin_guard),
 ):
     db = DatabaseService(session)
 
@@ -178,6 +181,7 @@ async def list_email_blasts(
 async def get_email_blast(
     job_id: str,
     session: Session = Depends(get_session),
+    credentials=Depends(admin_guard),
 ):
     db = DatabaseService(session)
 

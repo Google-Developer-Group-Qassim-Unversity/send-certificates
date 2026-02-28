@@ -26,6 +26,7 @@ from app.core.exceptions import (
     JobAlreadyProcessingError,
     RecordNotFoundError,
 )
+from app.core.auth import admin_guard
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,7 @@ async def create_certificates(
     request: CertificateRequest,
     background_tasks: BackgroundTasks,
     session: Session = Depends(get_session),
+    credentials=Depends(admin_guard),
 ):
     db = DatabaseService(session)
 
@@ -104,6 +106,7 @@ async def create_custom_certificates(
     request: CustomCertificateRequest,
     background_tasks: BackgroundTasks,
     session: Session = Depends(get_session),
+    credentials=Depends(admin_guard),
 ):
     db = DatabaseService(session)
 
@@ -155,6 +158,7 @@ async def download_certificate(
     job_id: str,
     member_id_or_email: str,
     session: Session = Depends(get_session),
+    credentials=Depends(admin_guard),
 ):
     db = DatabaseService(session)
 

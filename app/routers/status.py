@@ -20,6 +20,7 @@ from app.db.session import get_session
 from app.db.schema import EmailServiceJobType
 from app.services.database import DatabaseService
 from app.services.certificate import certificate_service
+from app.core.auth import admin_guard
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,7 @@ async def list_jobs(
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
     session: Session = Depends(get_session),
+    credentials=Depends(admin_guard),
 ):
     db = DatabaseService(session)
 
@@ -82,6 +84,7 @@ async def list_jobs(
 async def get_job_status(
     job_id: str,
     session: Session = Depends(get_session),
+    credentials=Depends(admin_guard),
 ):
     db = DatabaseService(session)
 
@@ -115,6 +118,7 @@ async def get_job_status(
 async def get_job_recipients(
     job_id: str,
     session: Session = Depends(get_session),
+    credentials=Depends(admin_guard),
 ):
     db = DatabaseService(session)
 
