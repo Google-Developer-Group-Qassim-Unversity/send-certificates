@@ -27,6 +27,18 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["jobs"])
 
 
+def _get_event_name(job, db: DatabaseService) -> str:
+    if job.event_id:
+        event = db.get_event(job.event_id)
+        if event:
+            return event.name
+    
+    if job.job_config:
+        return job.job_config.get("event_name", "Unknown")
+    
+    return "Unknown"
+
+
 @router.get(
     "/jobs",
     response_model=JobsListResponse,
@@ -54,12 +66,11 @@ async def list_jobs(
 
     job_items = []
     for job in jobs:
-        event = db.get_event(job.event_id) if job.event_id else None
         job_items.append(
             JobListItem(
                 job_id=job.id,
                 event_id=job.event_id,
-                event_name=event.name if event else "Unknown",
+                event_name=_get_event_name(job, db),
                 job_type=JobType(job.job_type.value),
                 status=JobStatus(job.status.value),
                 progress=JobProgress(
@@ -90,12 +101,10 @@ async def get_job_status(
 
     job = db.get_job_or_raise(job_id)
 
-    event = db.get_event(job.event_id) if job.event_id else None
-
     return JobResponse(
         job_id=job.id,
         event_id=job.event_id,
-        event_name=event.name if event else "Unknown",
+        event_name=_get_event_name(job, db),
         job_type=JobType(job.job_type.value),
         status=JobStatus(job.status.value),
         progress=JobProgress(
@@ -123,8 +132,6 @@ async def get_job_recipients(
     db = DatabaseService(session)
 
     job = db.get_job_or_raise(job_id)
-
-    event = db.get_event(job.event_id) if job.event_id else None
     recipients = db.get_recipients_for_job(job_id)
 
     recipient_results = []
@@ -153,7 +160,7 @@ async def get_job_recipients(
     return JobDetailResponse(
         job_id=job.id,
         event_id=job.event_id,
-        event_name=event.name if event else "Unknown",
+        event_name=_get_event_name(job, db),
         job_type=JobType(job.job_type.value),
         status=JobStatus(job.status.value),
         progress=JobProgress(

@@ -240,7 +240,7 @@ class CertificateService:
             return False
 
 
-def process_certificate_event_job(job_id: str) -> None:
+def process_certificate_attendance_job(job_id: str) -> None:
     service = CertificateService()
 
     with Session(engine) as session:
@@ -428,8 +428,28 @@ def process_certificate_custom_job(job_id: str) -> None:
 
         for recipient in recipients:
             assert recipient.id, "Recipient ID should exist"
-            name = recipient.name or "Unknown"
+
+            name = recipient.name
             email = recipient.email
+
+            if recipient.member_id:
+                member = db.get_member(recipient.member_id)
+                if not member:
+                    logger.error(f"Member {recipient.member_id} not found")
+                    db.update_recipient_status(
+                        recipient.id,
+                        EmailServiceRecipientStatus.FAILED,
+                        error="Member not found in database",
+                    )
+                    db.update_job_status(
+                        job_id, increment_completed=True, increment_failed=True
+                    )
+                    continue
+                name = member.name
+                email = member.email
+
+            if not name:
+                name = "Unknown"
 
             if not email:
                 logger.error(f"Recipient {recipient.id} has no email address")

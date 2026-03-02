@@ -81,7 +81,7 @@ class DatabaseService:
         )
         return self.session.exec(statement).first()
 
-    def create_certificate_job_for_event(
+    def create_certificate_attendance_job(
         self,
         event_id: int,
         member_ids: list[int],
@@ -90,7 +90,7 @@ class DatabaseService:
             job = EmailServiceJob(
                 id=str(uuid.uuid4()),
                 event_id=event_id,
-                job_type=EmailServiceJobType.CERTIFICATE_EVENT,
+                job_type=EmailServiceJobType.CERTIFICATE_ATTENDANCE,
                 status=EmailServiceJobStatus.PENDING,
                 total=len(member_ids),
                 completed=0,
@@ -117,7 +117,7 @@ class DatabaseService:
         except Exception as e:
             self.session.rollback()
             raise TransactionError(
-                f"Failed to create certificate job for event {event_id}",
+                f"Failed to create certificate attendance job for event {event_id}",
                 details={
                     "event_id": event_id,
                     "member_count": len(member_ids),
@@ -127,17 +127,22 @@ class DatabaseService:
 
     def create_certificate_job_custom(
         self,
-        recipients: list[dict],
-        event_name: str,
-        event_date: str,
+        event_name: Optional[str],
+        event_date: Optional[str],
         official: bool,
         event_id: Optional[int] = None,
+        recipients: Optional[list[dict]] = None,
+        member_ids: Optional[list[int]] = None,
     ) -> EmailServiceJob:
         job_config = {
-            "event_name": event_name,
-            "event_date": event_date,
+            "event_name": event_name or "Custom Event",
+            "event_date": event_date or datetime.now(timezone.utc).strftime("%Y-%m-%d"),
             "official": official,
         }
+
+        total_count = (
+            len(member_ids) if member_ids else len(recipients) if recipients else 0
+        )
 
         try:
             job = EmailServiceJob(
@@ -146,7 +151,7 @@ class DatabaseService:
                 job_type=EmailServiceJobType.CERTIFICATE_CUSTOM,
                 job_config=job_config,
                 status=EmailServiceJobStatus.PENDING,
-                total=len(recipients),
+                total=total_count,
                 completed=0,
                 successful=0,
                 failed=0,
@@ -155,15 +160,24 @@ class DatabaseService:
             )
             self.session.add(job)
 
-            for r in recipients:
-                recipient = EmailServiceRecipient(
-                    job_id=job.id,
-                    email=r.get("email"),
-                    name=r.get("name"),
-                    custom_data=r.get("custom_data"),
-                    status=EmailServiceRecipientStatus.PENDING,
-                )
-                self.session.add(recipient)
+            if member_ids:
+                for member_id in member_ids:
+                    recipient = EmailServiceRecipient(
+                        job_id=job.id,
+                        member_id=member_id,
+                        status=EmailServiceRecipientStatus.PENDING,
+                    )
+                    self.session.add(recipient)
+            elif recipients:
+                for r in recipients:
+                    recipient = EmailServiceRecipient(
+                        job_id=job.id,
+                        email=r.get("email"),
+                        name=r.get("name"),
+                        gender=r.get("gender"),
+                        status=EmailServiceRecipientStatus.PENDING,
+                    )
+                    self.session.add(recipient)
 
             self.session.commit()
             self.session.refresh(job)
@@ -176,7 +190,7 @@ class DatabaseService:
                 "Failed to create custom certificate job",
                 details={
                     "event_name": event_name,
-                    "recipient_count": len(recipients),
+                    "recipient_count": total_count,
                     "error": str(e),
                 },
             ) from e

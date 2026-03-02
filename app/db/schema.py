@@ -465,7 +465,7 @@ class Submissions(SQLModel, table=True):
 
 
 class EmailServiceJobType(str, enum.Enum):
-    CERTIFICATE_EVENT = "certificate_event"
+    CERTIFICATE_ATTENDANCE = "certificate_attendance"
     CERTIFICATE_CUSTOM = "certificate_custom"
     EMAIL_BLAST = "email_blast"
     REMINDER = "reminder"
@@ -610,6 +610,9 @@ class EmailServiceRecipient(SQLModel, table=True):
     )
     name: Optional[str] = Field(
         default=None, sa_column=Column("name", VARCHAR(255), nullable=True)
+    )
+    gender: Optional[str] = Field(
+        default=None, sa_column=Column("gender", VARCHAR(20), nullable=True)
     )
     custom_data: Optional[dict] = Field(
         default=None, sa_column=Column("custom_data", JSON)

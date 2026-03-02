@@ -23,7 +23,7 @@ class RecipientStatus(str, Enum):
 
 
 class JobType(str, Enum):
-    certificate_event = "certificate_event"
+    certificate_attendance = "certificate_attendance"
     certificate_custom = "certificate_custom"
     email_blast = "email_blast"
     reminder = "reminder"
@@ -42,42 +42,58 @@ class BlastDeliveryStatus(str, Enum):
     failed = "failed"
 
 
-class CertificateRequest(BaseModel):
-    event_id: int
-    member_ids: list[int]
-
-    @model_validator(mode="after")
-    def check_members_not_empty(self):
-        if not self.member_ids:
-            raise ValueError("member_ids list cannot be empty")
-        return self
-
-
 class CustomCertificateRecipient(BaseModel):
     name: str
     email: EmailStr
-    custom_data: Optional[dict] = None
+    gender: Optional[Gender] = None
 
 
 class CustomCertificateRequest(BaseModel):
-    event_name: str
-    event_date: str
-    official: bool
-    recipients: list[CustomCertificateRecipient]
     event_id: Optional[int] = None
+    event_name: Optional[str] = None
+    event_date: Optional[str] = None
+    official: Optional[bool] = None
+    recipients: Optional[list[CustomCertificateRecipient]] = None
+    member_ids: Optional[list[int]] = None
 
     @model_validator(mode="after")
-    def check_recipients_not_empty(self):
-        if not self.recipients:
-            raise ValueError("recipients list cannot be empty")
+    def check_event_source(self):
+        has_event_id = self.event_id is not None
+        has_custom_event = all([
+            self.event_name is not None,
+            self.event_date is not None,
+            self.official is not None,
+        ])
+        
+        if has_event_id and has_custom_event:
+            raise ValueError(
+                "Provide either event_id (for existing event) OR "
+                "event_name + event_date + official (for custom event), not both"
+            )
+        
+        if not has_event_id and not has_custom_event:
+            raise ValueError(
+                "Must provide either event_id (for existing event) OR "
+                "event_name + event_date + official (for custom event)"
+            )
+        
+        if self.event_name is not None and not self.event_name.strip():
+            raise ValueError("event_name cannot be empty")
+        if self.event_date is not None and not self.event_date.strip():
+            raise ValueError("event_date cannot be empty")
+        
         return self
 
     @model_validator(mode="after")
-    def check_not_empty(self):
-        if not self.event_name or not self.event_name.strip():
-            raise ValueError("event_name cannot be empty")
-        if not self.event_date or not self.event_date.strip():
-            raise ValueError("event_date cannot be empty")
+    def check_recipients_or_member_ids(self):
+        if not self.recipients and not self.member_ids:
+            raise ValueError("Either recipients or member_ids must be provided")
+        if self.recipients and self.member_ids:
+            raise ValueError("Provide either recipients or member_ids, not both")
+        if self.recipients is not None and len(self.recipients) == 0:
+            raise ValueError("recipients list cannot be empty")
+        if self.member_ids is not None and len(self.member_ids) == 0:
+            raise ValueError("member_ids list cannot be empty")
         return self
 
 

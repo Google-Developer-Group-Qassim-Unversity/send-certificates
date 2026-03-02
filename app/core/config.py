@@ -11,6 +11,8 @@ load_dotenv()
 ENVIRONMENT = os.getenv("ENV", "production").lower()
 is_dev = ENVIRONMENT == "development"
 
+BASE_API_URL = "http://localhost:7001" if is_dev else "https://refactor.albrrak773.com"
+
 CLERK_PROD = "https://clerk.gdg-q.com/.well-known/jwks.json"
 CLERK_DEV = "https://quality-ram-46.clerk.accounts.dev/.well-known/jwks.json"
 
@@ -65,6 +67,7 @@ else:  # development
 
 class Settings:
     environment = ENVIRONMENT
+    base_api_url = BASE_API_URL
     app_password = APP_PASSWORD
     sender_email = SENDER_EMAIL
     smtp_host = SMTP_HOST
