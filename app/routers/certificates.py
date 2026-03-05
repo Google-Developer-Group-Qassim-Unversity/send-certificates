@@ -113,6 +113,8 @@ async def create_attendance_certificates(
         f"Created attendance job {job.id} for event '{event.name}' with {len(member_ids)} attendees"
     )
 
+    progress = db.get_job_progress(job.id)
+
     return JobResponse(
         job_id=job.id,
         event_id=job.event_id,
@@ -120,10 +122,10 @@ async def create_attendance_certificates(
         job_type=JobType.certificate_attendance,
         status=JobStatus.pending,
         progress=JobProgress(
-            total=job.total,
-            completed=job.completed,
-            successful=job.successful,
-            failed=job.failed,
+            total=progress['total'],
+            completed=progress['completed'],
+            successful=progress['successful'],
+            failed=progress['failed'],
         ),
         created_at=job.created_at,
         updated_at=job.updated_at,
@@ -143,18 +145,35 @@ async def create_custom_certificates(
     session: Session = Depends(get_session),
     credentials=Depends(admin_guard),
 ):
+    from datetime import datetime, timezone
+    
     db = DatabaseService(session)
 
     event_id = request.event_id
     event_name = request.event_name
-    event_date = request.event_date
-    official = request.official
+    event_start_datetime = None
+    event_end_datetime = None
+    is_official = request.official
 
     if event_id:
         event = db.get_event_or_raise(event_id)
-        event_name = event.name
-        event_date = event.start_datetime.strftime("%Y-%m-%d")
-        official = bool(event.is_official)
+        event_name = None  # Will be read from event via FK
+        event_start_datetime = None
+        event_end_datetime = None
+        is_official = None
+    else:
+        if event_name is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="event_name is required when event_id is not provided"
+            )
+        if request.event_date:
+            event_start_datetime = datetime.strptime(request.event_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            event_end_datetime = event_start_datetime
+        else:
+            event_start_datetime = datetime.now(timezone.utc)
+            event_end_datetime = event_start_datetime
+        is_official = request.official if request.official is not None else False
 
     recipients_data = None
     member_ids = None
@@ -176,8 +195,9 @@ async def create_custom_certificates(
         member_ids=member_ids,
         event_id=event_id,
         event_name=event_name,
-        event_date=event_date,
-        official=official if official is not None else False,
+        event_start_datetime=event_start_datetime,
+        event_end_datetime=event_end_datetime,
+        is_official=is_official,
     )
 
     background_tasks.add_task(
@@ -187,21 +207,29 @@ async def create_custom_certificates(
 
     recipient_count = len(member_ids) if member_ids else len(recipients_data or [])
 
+    display_event_name = event_name or "Unknown Event"
+    if event_id:
+        event = db.get_event(event_id)
+        if event:
+            display_event_name = event.name
+
     logger.info(
-        f"Created custom job {job.id} for '{event_name}' with {recipient_count} recipients"
+        f"Created custom job {job.id} for '{display_event_name}' with {recipient_count} recipients"
     )
+
+    progress = db.get_job_progress(job.id)
 
     return JobResponse(
         job_id=job.id,
         event_id=job.event_id,
-        event_name=event_name or "Unknown Event",
+        event_name=display_event_name,
         job_type=JobType.certificate_custom,
         status=JobStatus.pending,
         progress=JobProgress(
-            total=job.total,
-            completed=job.completed,
-            successful=job.successful,
-            failed=job.failed,
+            total=progress['total'],
+            completed=progress['completed'],
+            successful=progress['successful'],
+            failed=progress['failed'],
         ),
         created_at=job.created_at,
         updated_at=job.updated_at,

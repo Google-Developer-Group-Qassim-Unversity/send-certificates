@@ -28,13 +28,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/email-blasts", tags=["email-blasts"])
 
 
-def get_event_name(db: DatabaseService, event_id: Optional[int]) -> str:
-    if event_id:
-        event = db.get_event(event_id)
-        return event.name if event else "Unknown"
-    return "Custom"
-
-
 @router.post(
     "",
     response_model=EmailBlastResponse,
@@ -50,12 +43,7 @@ async def create_email_blast(
 ):
     db = DatabaseService(session)
 
-    event_name = "Custom"
-    if request.event_id:
-        event = db.get_event_or_raise(request.event_id)
-        event_name = event.name
-
-    recipients_data = []
+    email_list = []
     for r in request.recipients:
         if r.member_id:
             member = db.get_member(r.member_id)
@@ -66,34 +54,20 @@ async def create_email_blast(
                     f"Member {r.member_id} has no email address",
                     details={"member_id": r.member_id},
                 )
-            recipients_data.append(
-                {
-                    "member_id": r.member_id,
-                    "email": member.email,
-                    "name": member.name,
-                }
-            )
+            email_list.append(member.email)
         elif r.email:
-            recipients_data.append(
-                {
-                    "member_id": None,
-                    "email": r.email,
-                    "name": r.name,
-                }
-            )
+            email_list.append(r.email)
         else:
             raise InvalidInputError(
                 "Each recipient must have either member_id or email specified",
                 details={"recipient": r.model_dump()},
             )
 
-    job, email_blast = db.create_email_blast_job(
+    job, blast = db.create_email_blast_job(
         subject=request.subject,
         body_html=request.body_html,
-        recipients=recipients_data,
+        recipients=email_list,
         body_text=request.body_text,
-        is_templated=request.is_templated,
-        event_id=request.event_id,
     )
 
     background_tasks.add_task(
@@ -102,21 +76,15 @@ async def create_email_blast(
     )
 
     logger.info(
-        f"Created email blast job {job.id} with {len(recipients_data)} recipients"
+        f"Created email blast job {job.id} with {len(email_list)} recipients"
     )
 
     return EmailBlastResponse(
         job_id=job.id,
-        event_id=job.event_id,
-        event_name=event_name,
-        subject=email_blast.subject,
-        is_templated=request.is_templated,
+        subject=blast.subject,
         delivery_status=BlastDeliveryStatus.pending,
-        sent_count=0,
-        failed_count=0,
-        total_recipients=job.total,
+        total_recipients=len(email_list),
         created_at=job.created_at,
-        sent_at=None,
     )
 
 
@@ -127,7 +95,6 @@ async def create_email_blast(
     description="Get a paginated list of all email blast jobs",
 )
 async def list_email_blasts(
-    event_id: Optional[int] = Query(None, description="Filter by event ID"),
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
     session: Session = Depends(get_session),
@@ -136,14 +103,12 @@ async def list_email_blasts(
     db = DatabaseService(session)
 
     jobs = db.list_jobs(
-        event_id=event_id,
         job_type=EmailServiceJobType.EMAIL_BLAST,
         limit=limit,
         offset=offset,
     )
 
     total = db.count_jobs(
-        event_id=event_id,
         job_type=EmailServiceJobType.EMAIL_BLAST,
     )
 
@@ -151,17 +116,18 @@ async def list_email_blasts(
     for job in jobs:
         blast = db.get_email_blast_for_job(job.id)
         if blast:
-            event_name = get_event_name(db, job.event_id)
+            total_recipients = len(blast.recipients) if blast.recipients else 0
+            failed_count = len(blast.failed_recipients) if blast.failed_recipients else 0
+            sent_count = total_recipients - failed_count
+            
             blast_items.append(
                 EmailBlastListItem(
                     job_id=job.id,
-                    event_id=job.event_id,
-                    event_name=event_name,
                     subject=blast.subject,
                     delivery_status=BlastDeliveryStatus(blast.delivery_status.value),  # type: ignore
-                    sent_count=blast.sent_count,
-                    failed_count=blast.failed_count,
-                    total_recipients=job.total,
+                    sent_count=sent_count,
+                    failed_count=failed_count,
+                    total_recipients=total_recipients,
                     created_at=job.created_at,
                 )
             )
@@ -196,21 +162,19 @@ async def get_email_blast(
 
     blast = db.get_email_blast_for_job_or_raise(job_id)
 
-    event_name = get_event_name(db, job.event_id)
+    total_recipients = len(blast.recipients) if blast.recipients else 0
+    failed_count = len(blast.failed_recipients) if blast.failed_recipients else 0
+    sent_count = total_recipients - failed_count
 
     return EmailBlastDetailResponse(
         job_id=job.id,
-        event_id=job.event_id,
-        event_name=event_name,
         subject=blast.subject,
         body_html=blast.body_html,
         body_text=blast.body_text,
-        is_templated=bool(blast.is_templated),
         delivery_status=BlastDeliveryStatus(blast.delivery_status.value),  # type: ignore
-        sent_count=blast.sent_count,
-        failed_count=blast.failed_count,
-        total_recipients=job.total,
+        sent_count=sent_count,
+        failed_count=failed_count,
+        total_recipients=total_recipients,
         failed_recipients=blast.failed_recipients,
         created_at=job.created_at,
-        sent_at=blast.sent_at,
     )

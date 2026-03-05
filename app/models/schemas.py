@@ -59,28 +59,22 @@ class CustomCertificateRequest(BaseModel):
     @model_validator(mode="after")
     def check_event_source(self):
         has_event_id = self.event_id is not None
-        has_custom_event = all([
-            self.event_name is not None,
-            self.event_date is not None,
-            self.official is not None,
-        ])
+        has_custom_event_name = self.event_name is not None
         
-        if has_event_id and has_custom_event:
+        if has_event_id and has_custom_event_name:
             raise ValueError(
                 "Provide either event_id (for existing event) OR "
-                "event_name + event_date + official (for custom event), not both"
+                "event_name (for custom event), not both"
             )
         
-        if not has_event_id and not has_custom_event:
+        if not has_event_id and not has_custom_event_name:
             raise ValueError(
                 "Must provide either event_id (for existing event) OR "
-                "event_name + event_date + official (for custom event)"
+                "event_name (for custom event)"
             )
         
         if self.event_name is not None and not self.event_name.strip():
             raise ValueError("event_name cannot be empty")
-        if self.event_date is not None and not self.event_date.strip():
-            raise ValueError("event_date cannot be empty")
         
         return self
 
@@ -113,9 +107,7 @@ class EmailBlastRequest(BaseModel):
     subject: str
     body_html: str
     body_text: Optional[str] = None
-    is_templated: bool = False
     recipients: list[EmailBlastRecipientRef]
-    event_id: Optional[int] = None
 
     @model_validator(mode="after")
     def check_recipients_not_empty(self):
@@ -191,45 +183,32 @@ class JobsListResponse(BaseModel):
 
 class FailedRecipient(BaseModel):
     email: str
-    name: Optional[str] = None
     error: Optional[str] = None
 
 
 class EmailBlastResponse(BaseModel):
     job_id: str
-    event_id: Optional[int]
-    event_name: str
     subject: str
-    is_templated: bool
     delivery_status: BlastDeliveryStatus
-    sent_count: int
-    failed_count: int
     total_recipients: int
     created_at: datetime
-    sent_at: Optional[datetime] = None
 
 
 class EmailBlastDetailResponse(BaseModel):
     job_id: str
-    event_id: Optional[int]
-    event_name: str
     subject: str
     body_html: str
     body_text: Optional[str]
-    is_templated: bool
     delivery_status: BlastDeliveryStatus
     sent_count: int
     failed_count: int
     total_recipients: int
     failed_recipients: Optional[list[FailedRecipient]] = None
     created_at: datetime
-    sent_at: Optional[datetime] = None
 
 
 class EmailBlastListItem(BaseModel):
     job_id: str
-    event_id: Optional[int]
-    event_name: str
     subject: str
     delivery_status: BlastDeliveryStatus
     sent_count: int

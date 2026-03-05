@@ -33,8 +33,8 @@ def _get_event_name(job, db: DatabaseService) -> str:
         if event:
             return event.name
     
-    if job.job_config:
-        return job.job_config.get("event_name", "Unknown")
+    if job.event_name:
+        return job.event_name
     
     return "Unknown"
 
@@ -66,6 +66,7 @@ async def list_jobs(
 
     job_items = []
     for job in jobs:
+        progress = db.get_job_progress(job.id)
         job_items.append(
             JobListItem(
                 job_id=job.id,
@@ -74,10 +75,10 @@ async def list_jobs(
                 job_type=JobType(job.job_type.value),
                 status=JobStatus(job.status.value),
                 progress=JobProgress(
-                    total=job.total,
-                    completed=job.completed,
-                    successful=job.successful,
-                    failed=job.failed,
+                    total=progress['total'],
+                    completed=progress['completed'],
+                    successful=progress['successful'],
+                    failed=progress['failed'],
                 ),
                 created_at=job.created_at,
             )
@@ -100,6 +101,7 @@ async def get_job_status(
     db = DatabaseService(session)
 
     job = db.get_job_or_raise(job_id)
+    progress = db.get_job_progress(job.id)
 
     return JobResponse(
         job_id=job.id,
@@ -108,10 +110,10 @@ async def get_job_status(
         job_type=JobType(job.job_type.value),
         status=JobStatus(job.status.value),
         progress=JobProgress(
-            total=job.total,
-            completed=job.completed,
-            successful=job.successful,
-            failed=job.failed,
+            total=progress['total'],
+            completed=progress['completed'],
+            successful=progress['successful'],
+            failed=progress['failed'],
         ),
         created_at=job.created_at,
         updated_at=job.updated_at,
@@ -157,6 +159,8 @@ async def get_job_recipients(
             )
         )
 
+    progress = db.get_job_progress(job.id)
+
     return JobDetailResponse(
         job_id=job.id,
         event_id=job.event_id,
@@ -164,10 +168,10 @@ async def get_job_recipients(
         job_type=JobType(job.job_type.value),
         status=JobStatus(job.status.value),
         progress=JobProgress(
-            total=job.total,
-            completed=job.completed,
-            successful=job.successful,
-            failed=job.failed,
+            total=progress['total'],
+            completed=progress['completed'],
+            successful=progress['successful'],
+            failed=progress['failed'],
         ),
         created_at=job.created_at,
         updated_at=job.updated_at,

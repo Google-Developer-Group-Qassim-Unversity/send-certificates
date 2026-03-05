@@ -273,9 +273,6 @@ def process_certificate_attendance_job(job_id: str) -> None:
         event_date = event.start_datetime.strftime("%Y-%m-%d")
 
         recipients = db.get_recipients_for_job(job_id)
-        assert len(recipients) == job.total, (
-            f"Recipient count ({len(recipients)}) != job.total ({job.total})"
-        )
 
         for recipient in recipients:
             assert recipient.id, "Recipient ID should exist"
@@ -284,9 +281,6 @@ def process_certificate_attendance_job(job_id: str) -> None:
                     recipient.id,
                     EmailServiceRecipientStatus.FAILED,
                     error="No member_id associated",
-                )
-                db.update_job_status(
-                    job_id, increment_completed=True, increment_failed=True
                 )
                 continue
 
@@ -297,9 +291,6 @@ def process_certificate_attendance_job(job_id: str) -> None:
                     recipient.id,
                     EmailServiceRecipientStatus.FAILED,
                     error="Member not found in database",
-                )
-                db.update_job_status(
-                    job_id, increment_completed=True, increment_failed=True
                 )
                 continue
 
@@ -338,9 +329,6 @@ def process_certificate_attendance_job(job_id: str) -> None:
                         EmailServiceRecipientStatus.FAILED,
                         error="Member has no email address",
                     )
-                    db.update_job_status(
-                        job_id, increment_completed=True, increment_failed=True
-                    )
                     continue
 
                 service.send_email(
@@ -353,9 +341,6 @@ def process_certificate_attendance_job(job_id: str) -> None:
                 db.update_recipient_status(
                     recipient.id, EmailServiceRecipientStatus.SENT
                 )
-                db.update_job_status(
-                    job_id, increment_completed=True, increment_successful=True
-                )
 
             except (PdfConversionError, EmailSendError, TemplateNotFoundError) as e:
                 logger.error(f"Processing error for {member.name}: {e.message}")
@@ -364,18 +349,12 @@ def process_certificate_attendance_job(job_id: str) -> None:
                     EmailServiceRecipientStatus.FAILED,
                     error=e.message,
                 )
-                db.update_job_status(
-                    job_id, increment_completed=True, increment_failed=True
-                )
             except Exception as e:
                 logger.exception(f"Unexpected error processing {member.name}: {e}")
                 db.update_recipient_status(
                     recipient.id,
                     EmailServiceRecipientStatus.FAILED,
                     error=str(e),
-                )
-                db.update_job_status(
-                    job_id, increment_completed=True, increment_failed=True
                 )
             finally:
                 try:
@@ -384,15 +363,14 @@ def process_certificate_attendance_job(job_id: str) -> None:
                 except Exception as cleanup_error:
                     logger.warning(f"Failed to cleanup PPTX file: {cleanup_error}")
 
-        job = db.get_job(job_id)
-        assert job is not None, f"Job {job_id} disappeared during processing"
+        progress = db.get_job_progress(job_id)
 
-        if job.failed == job.total:
+        if progress['failed'] == progress['total']:
             db.update_job_status(job_id, status=EmailServiceJobStatus.FAILED)
         else:
             db.update_job_status(job_id, status=EmailServiceJobStatus.COMPLETED)
 
-        logger.info(f"Job {job_id} completed: {job.successful}/{job.total} successful")
+        logger.info(f"Job {job_id} completed: {progress['successful']}/{progress['total']} successful")
 
 
 def process_certificate_custom_job(job_id: str) -> None:
@@ -405,12 +383,9 @@ def process_certificate_custom_job(job_id: str) -> None:
         if not job:
             raise JobNotFoundError(job_id)
 
-        job_config = job.job_config or {}
-        event_name = job_config.get("event_name", "Unknown Event")
-        event_date = job_config.get(
-            "event_date", datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        )
-        official = job_config.get("official", False)
+        event_name = job.event_name or "Unknown Event"
+        event_date = (job.event_start_datetime or datetime.now(timezone.utc)).strftime("%Y-%m-%d")
+        official = bool(job.is_official)
 
         db.update_job_status(job_id, status=EmailServiceJobStatus.PROCESSING)
 
@@ -422,9 +397,6 @@ def process_certificate_custom_job(job_id: str) -> None:
         template_path = service.get_template_path(official)
 
         recipients = db.get_recipients_for_job(job_id)
-        assert len(recipients) == job.total, (
-            f"Recipient count ({len(recipients)}) != job.total ({job.total})"
-        )
 
         for recipient in recipients:
             assert recipient.id, "Recipient ID should exist"
@@ -441,9 +413,6 @@ def process_certificate_custom_job(job_id: str) -> None:
                         EmailServiceRecipientStatus.FAILED,
                         error="Member not found in database",
                     )
-                    db.update_job_status(
-                        job_id, increment_completed=True, increment_failed=True
-                    )
                     continue
                 name = member.name
                 email = member.email
@@ -457,9 +426,6 @@ def process_certificate_custom_job(job_id: str) -> None:
                     recipient.id,
                     EmailServiceRecipientStatus.FAILED,
                     error="No email address",
-                )
-                db.update_job_status(
-                    job_id, increment_completed=True, increment_failed=True
                 )
                 continue
 
@@ -499,25 +465,16 @@ def process_certificate_custom_job(job_id: str) -> None:
                 db.update_recipient_status(
                     recipient.id, EmailServiceRecipientStatus.SENT
                 )
-                db.update_job_status(
-                    job_id, increment_completed=True, increment_successful=True
-                )
 
             except (PdfConversionError, EmailSendError, TemplateNotFoundError) as e:
                 logger.error(f"Processing error for {name}: {e.message}")
                 db.update_recipient_status(
                     recipient.id, EmailServiceRecipientStatus.FAILED, error=e.message
                 )
-                db.update_job_status(
-                    job_id, increment_completed=True, increment_failed=True
-                )
             except Exception as e:
                 logger.exception(f"Unexpected error processing {name}: {e}")
                 db.update_recipient_status(
                     recipient.id, EmailServiceRecipientStatus.FAILED, error=str(e)
-                )
-                db.update_job_status(
-                    job_id, increment_completed=True, increment_failed=True
                 )
             finally:
                 try:
@@ -526,15 +483,14 @@ def process_certificate_custom_job(job_id: str) -> None:
                 except Exception as cleanup_error:
                     logger.warning(f"Failed to cleanup PPTX file: {cleanup_error}")
 
-        job = db.get_job(job_id)
-        assert job is not None, f"Job {job_id} disappeared during processing"
+        progress = db.get_job_progress(job_id)
 
-        if job.failed == job.total:
+        if progress['failed'] == progress['total']:
             db.update_job_status(job_id, status=EmailServiceJobStatus.FAILED)
         else:
             db.update_job_status(job_id, status=EmailServiceJobStatus.COMPLETED)
 
-        logger.info(f"Job {job_id} completed: {job.successful}/{job.total} successful")
+        logger.info(f"Job {job_id} completed: {progress['successful']}/{progress['total']} successful")
 
 
 certificate_service = CertificateService()

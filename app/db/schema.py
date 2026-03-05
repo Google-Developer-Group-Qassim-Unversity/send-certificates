@@ -514,6 +514,19 @@ class EmailServiceJob(SQLModel, table=True):
         default=None,
         sa_column=Column("event_id", INTEGER(unsigned=True), nullable=True),
     )
+    event_name: Optional[str] = Field(
+        default=None, sa_column=Column("event_name", VARCHAR(150), nullable=True)
+    )
+    event_start_datetime: Optional[datetime.datetime] = Field(
+        default=None, sa_column=Column("event_start_datetime", DateTime, nullable=True)
+    )
+    event_end_datetime: Optional[datetime.datetime] = Field(
+        default=None, sa_column=Column("event_end_datetime", DateTime, nullable=True)
+    )
+    is_official: Optional[int] = Field(
+        default=None,
+        sa_column=Column("is_official", TINYINT(1), nullable=True),
+    )
     job_type: EmailServiceJobType = Field(
         sa_column=Column(
             "job_type",
@@ -523,9 +536,6 @@ class EmailServiceJob(SQLModel, table=True):
             ),
             nullable=False,
         )
-    )
-    job_config: Optional[dict] = Field(
-        default=None, sa_column=Column("job_config", JSON)
     )
     status: EmailServiceJobStatus = Field(
         sa_column=Column(
@@ -537,18 +547,6 @@ class EmailServiceJob(SQLModel, table=True):
             nullable=False,
             server_default="'pending'",
         )
-    )
-    total: int = Field(
-        sa_column=Column("total", INTEGER, nullable=False, server_default="'0'")
-    )
-    completed: int = Field(
-        sa_column=Column("completed", INTEGER, nullable=False, server_default="'0'")
-    )
-    successful: int = Field(
-        sa_column=Column("successful", INTEGER, nullable=False, server_default="'0'")
-    )
-    failed: int = Field(
-        sa_column=Column("failed", INTEGER, nullable=False, server_default="'0'")
     )
     created_at: datetime.datetime = Field(
         sa_column=Column(
@@ -571,7 +569,7 @@ class EmailServiceJob(SQLModel, table=True):
     )
 
     recipients: list["EmailServiceRecipient"] = Relationship(back_populates="job")
-    email_blast: Optional["EmailServiceEmailBlast"] = Relationship(back_populates="job")
+    blast: Optional["EmailServiceBlast"] = Relationship(back_populates="job")
     event: Optional["Events"] = Relationship()
 
 
@@ -611,11 +609,16 @@ class EmailServiceRecipient(SQLModel, table=True):
     name: Optional[str] = Field(
         default=None, sa_column=Column("name", VARCHAR(255), nullable=True)
     )
-    gender: Optional[str] = Field(
-        default=None, sa_column=Column("gender", VARCHAR(20), nullable=True)
-    )
-    custom_data: Optional[dict] = Field(
-        default=None, sa_column=Column("custom_data", JSON)
+    gender: Optional[MembersGender] = Field(
+        default=None,
+        sa_column=Column(
+            "gender",
+            Enum(
+                MembersGender,
+                values_callable=lambda cls: [member.value for member in cls],
+            ),
+            nullable=True,
+        ),
     )
     status: EmailServiceRecipientStatus = Field(
         sa_column=Column(
@@ -674,17 +677,17 @@ class EmailServiceCertificate(SQLModel, table=True):
     recipient: "EmailServiceRecipient" = Relationship(back_populates="certificate")
 
 
-class EmailServiceEmailBlast(SQLModel, table=True):
-    __tablename__ = "email_service_email_blasts"
+class EmailServiceBlast(SQLModel, table=True):
+    __tablename__ = "email_service_blasts"
     __table_args__ = (
         ForeignKeyConstraint(
             ["job_id"],
             ["email_service_jobs.id"],
             ondelete="CASCADE",
             onupdate="CASCADE",
-            name="email_service_email_blasts_job_fk",
+            name="email_service_blasts_job_fk",
         ),
-        Index("email_service_email_blasts_job_id", "job_id", unique=True),
+        Index("email_service_blasts_job_id", "job_id", unique=True),
     )
 
     id: Optional[int] = Field(
@@ -694,10 +697,8 @@ class EmailServiceEmailBlast(SQLModel, table=True):
     subject: str = Field(sa_column=Column("subject", VARCHAR(500), nullable=False))
     body_html: str = Field(sa_column=Column("body_html", TEXT, nullable=False))
     body_text: Optional[str] = Field(default=None, sa_column=Column("body_text", TEXT))
-    is_templated: int = Field(
-        sa_column=Column(
-            "is_templated", TINYINT(1), nullable=False, server_default="'0'"
-        )
+    recipients: list = Field(
+        default_factory=list, sa_column=Column("recipients", JSON, nullable=False)
     )
     delivery_status: EmailBlastDeliveryStatus = Field(
         sa_column=Column(
@@ -710,20 +711,8 @@ class EmailServiceEmailBlast(SQLModel, table=True):
             server_default="'pending'",
         )
     )
-    sent_count: int = Field(
-        sa_column=Column("sent_count", INTEGER, nullable=False, server_default="'0'")
-    )
-    failed_count: int = Field(
-        sa_column=Column("failed_count", INTEGER, nullable=False, server_default="'0'")
-    )
     failed_recipients: Optional[list] = Field(
         default=None, sa_column=Column("failed_recipients", JSON)
     )
-    provider_response: Optional[dict] = Field(
-        default=None, sa_column=Column("provider_response", JSON)
-    )
-    sent_at: Optional[datetime.datetime] = Field(
-        default=None, sa_column=Column("sent_at", DateTime)
-    )
 
-    job: "EmailServiceJob" = Relationship(back_populates="email_blast")
+    job: "EmailServiceJob" = Relationship(back_populates="blast")

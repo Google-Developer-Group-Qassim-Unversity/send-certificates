@@ -45,25 +45,12 @@ def process_email_blast_job(job_id: str) -> None:
 
         blast = db.get_email_blast_for_job(job_id)
         assert blast is not None, (
-            f"Email blast job {job_id} missing EmailServiceEmailBlast record"
+            f"Email blast job {job_id} missing EmailServiceBlast record"
         )
 
         db.update_job_status(job_id, status=EmailServiceJobStatus.PROCESSING)
 
-        job_config = job.job_config or {}
-        recipients_data = job_config.get("recipients", [])
-
-        email_list = []
-        name_list = []
-        for r in recipients_data:
-            if r.get("member_id"):
-                member = db.get_member(r["member_id"])
-                if member and member.email:
-                    email_list.append(member.email)
-                    name_list.append(member.name or "")
-            elif r.get("email"):
-                email_list.append(r["email"])
-                name_list.append(r.get("name", ""))
+        email_list = blast.recipients or []
 
         if not email_list:
             logger.error("No valid recipients found")
@@ -79,8 +66,7 @@ def process_email_blast_job(job_id: str) -> None:
         body_html = blast.body_html
         body_text = blast.body_text
 
-        sent_count = 0
-        failed_count = 0
+        sent = False
         failed_recipients = []
         last_error: Optional[str] = None
 
@@ -106,7 +92,7 @@ def process_email_blast_job(job_id: str) -> None:
                         smtp.login(settings.sender_email, settings.app_password)
                         smtp.send_message(msg)
                         logger.info("Email blast sent successfully")
-                        sent_count = len(email_list)
+                        sent = True
                         break
                 except smtplib.SMTPException as e:
                     last_error = f"SMTP error: {e}"
@@ -122,32 +108,22 @@ def process_email_blast_job(job_id: str) -> None:
                 if attempt < settings.max_retries - 1:
                     time.sleep(settings.email_delay)
 
-            if sent_count == 0:
-                failed_count = len(email_list)
+            if not sent:
                 failed_recipients = [
-                    {
-                        "email": email_list[i],
-                        "name": name_list[i],
-                        "error": last_error or "Unknown error",
-                    }
-                    for i in range(len(email_list))
+                    {"email": email, "error": last_error or "Unknown error"}
+                    for email in email_list
                 ]
 
         except Exception as e:
             logger.exception(f"Unexpected error sending email blast: {e}")
-            failed_count = len(email_list)
             failed_recipients = [
-                {"email": email_list[i], "name": name_list[i], "error": str(e)}
-                for i in range(len(email_list))
+                {"email": email, "error": str(e)}
+                for email in email_list
             ]
 
-        assert sent_count + failed_count == len(email_list), (
-            f"Invariant violated: sent ({sent_count}) + failed ({failed_count}) != total ({len(email_list)})"
-        )
-
-        if sent_count > 0 and failed_count == 0:
+        if sent and not failed_recipients:
             delivery_status = EmailBlastDeliveryStatus.SENT
-        elif sent_count > 0 and failed_count > 0:
+        elif sent and failed_recipients:
             delivery_status = EmailBlastDeliveryStatus.PARTIAL
         else:
             delivery_status = EmailBlastDeliveryStatus.FAILED
@@ -157,8 +133,6 @@ def process_email_blast_job(job_id: str) -> None:
         db.update_email_blast(
             blast_id,
             delivery_status=delivery_status,
-            sent_count=sent_count,
-            failed_count=failed_count,
             failed_recipients=failed_recipients if failed_recipients else None,
         )
 
