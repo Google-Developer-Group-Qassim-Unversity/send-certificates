@@ -126,3 +126,65 @@ class HealthCheck(BaseModel):
     libreoffice: str
     smtp: str
     timestamp: datetime
+
+
+class BlastRequest(BaseModel):
+    campaign_name: str
+    emails: list[EmailStr]
+    subject: Optional[str] = None
+    preview_text: Optional[str] = None
+
+    @field_validator("emails")
+    @classmethod
+    def check_emails_not_empty(cls, v: list[EmailStr]) -> list[EmailStr]:
+        if not v:
+            raise ValueError("Emails list cannot be empty")
+        return v
+
+    @field_validator("campaign_name")
+    @classmethod
+    def check_campaign_name_not_empty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("Campaign name cannot be empty")
+        return v.strip()
+
+
+class BlastResponse(BaseModel):
+    job_id: str
+    campaign_name: str
+    folder_name: str
+    status: JobStatus
+    message: str
+
+
+class BlastMemberResult(BaseModel):
+    email: str
+    status: MemberStatus
+    sent_at: Optional[datetime] = None
+    error: Optional[str] = None
+
+
+class BlastJobSummary(BaseModel):
+    job_id: str
+    campaign_name: str
+    folder_name: str
+    subject: Optional[str] = None
+    preview_text: Optional[str] = None
+    created_at: datetime
+    completed_at: Optional[datetime] = None
+    status: JobStatus
+    total_emails: int
+    successful: int
+    failed: int
+    emails: list[BlastMemberResult]
+
+
+class CampaignInfo(BaseModel):
+    name: str
+    has_template: bool
+    attachments: list[str]
+
+
+class CampaignsList(BaseModel):
+    total: int
+    campaigns: list[CampaignInfo]

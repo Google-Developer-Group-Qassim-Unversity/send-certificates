@@ -18,9 +18,14 @@ from models import (
     JobStatus,
     Member,
     Gender,
+    BlastRequest,
+    BlastResponse,
+    BlastJobSummary,
+    CampaignsList,
+    CampaignInfo,
 )
 from storage import storage
-from services import process_certificates_job, certificate_service
+from services import process_certificates_job, certificate_service, CampaignService, process_blast_job
 
 # Configure logging
 logging.basicConfig(
@@ -28,6 +33,8 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+campaign_service = CampaignService()
 
 
 @asynccontextmanager
@@ -334,7 +341,94 @@ async def health_check():
     )
 
 
+@app.get(
+    "/campaigns",
+    response_model=CampaignsList,
+    summary="List available campaigns",
+    description="Get a list of all available email campaigns",
+)
+async def list_campaigns():
+    """List all available campaigns."""
+    campaigns = campaign_service.list_campaigns()
+
+    campaign_infos = [
+        CampaignInfo(
+            name=c["name"],
+            has_template=c["has_template"],
+            attachments=c["attachments"],
+        )
+        for c in campaigns
+    ]
+
+    return CampaignsList(
+        total=len(campaign_infos),
+        campaigns=campaign_infos,
+    )
+
+
+@app.post(
+    "/campaigns",
+    response_model=BlastResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Send blast email campaign",
+    description="Send a blast email to multiple recipients using a campaign template",
+)
+async def send_blast_campaign(
+    request: BlastRequest,
+    background_tasks: BackgroundTasks,
+):
+    """Send blast email campaign."""
+    campaign = campaign_service.get_campaign(request.campaign_name)
+
+    if not campaign:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Campaign '{request.campaign_name}' not found or missing index.html template",
+        )
+
+    if storage.is_event_processing(request.campaign_name):
+        active_job_id = storage.get_active_job_id(request.campaign_name)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Campaign '{request.campaign_name}' is already being processed (job_id: {active_job_id}). Please wait until it completes.",
+        )
+
+    job_id = str(uuid.uuid4())
+    folder_name = storage.create_job_folder(f"blast-{request.campaign_name}", job_id)
+
+    storage.mark_event_processing(request.campaign_name, job_id)
+
+    storage.initialize_job_status(
+        job_id=job_id,
+        event_name=request.campaign_name,
+        folder_name=folder_name,
+        total_members=len(request.emails),
+    )
+
+    background_tasks.add_task(
+        process_blast_job,
+        job_id=job_id,
+        campaign_name=request.campaign_name,
+        emails=request.emails,
+        folder_name=folder_name,
+        subject=request.subject,
+        preview_text=request.preview_text,
+    )
+
+    logger.info(
+        f"Created blast job {job_id} for campaign '{request.campaign_name}' with {len(request.emails)} recipients"
+    )
+
+    return BlastResponse(
+        job_id=job_id,
+        campaign_name=request.campaign_name,
+        folder_name=folder_name,
+        status=JobStatus.pending,
+        message=f"Blast job created and queued for processing. {len(request.emails)} emails will be sent.",
+    )
+
+
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8001)

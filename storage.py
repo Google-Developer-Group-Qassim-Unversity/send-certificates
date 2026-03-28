@@ -14,6 +14,8 @@ from models import (
     JobSummary,
     EventListItem,
     Member,
+    BlastMemberResult,
+    BlastJobSummary,
 )
 
 
@@ -285,6 +287,83 @@ class StorageManager:
         if file_path.exists() and file_path.is_file():
             return file_path
         return None
+
+    def write_blast_summary(
+        self,
+        folder_name: str,
+        job_id: str,
+        campaign_name: str,
+        emails: list[BlastMemberResult],
+        status: JobStatus,
+        created_at: datetime,
+        completed_at: Optional[datetime] = None,
+        subject: Optional[str] = None,
+        preview_text: Optional[str] = None,
+    ) -> None:
+        """Write or update blast summary.json file."""
+        folder_path = self.get_job_folder_path(folder_name)
+        summary_path = folder_path / "summary.json"
+
+        successful = sum(1 for e in emails if e.status == MemberStatus.sent)
+        failed = sum(1 for e in emails if e.status == MemberStatus.failed)
+
+        summary_data = {
+            "job_id": job_id,
+            "campaign_name": campaign_name,
+            "folder_name": folder_name,
+            "subject": subject,
+            "preview_text": preview_text,
+            "created_at": created_at.isoformat(),
+            "completed_at": completed_at.isoformat() if completed_at else None,
+            "status": status.value,
+            "total_emails": len(emails),
+            "successful": successful,
+            "failed": failed,
+            "type": "blast",
+            "emails": [e.model_dump() for e in emails],
+        }
+
+        with self._lock:
+            with open(summary_path, "w", encoding="utf-8") as f:
+                json.dump(summary_data, f, ensure_ascii=False, indent=2, default=str)
+
+    def read_blast_summary(self, folder_name: str) -> Optional[BlastJobSummary]:
+        """Read blast summary.json from a job folder."""
+        summary_path = self.get_job_folder_path(folder_name) / "summary.json"
+
+        if not summary_path.exists():
+            return None
+
+        with open(summary_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        if data.get("type") != "blast":
+            return None
+
+        emails = [
+            BlastMemberResult(
+                email=e["email"],
+                status=MemberStatus(e["status"]),
+                sent_at=datetime.fromisoformat(e["sent_at"]) if e.get("sent_at") else None,
+                error=e.get("error"),
+            )
+            for e in data.get("emails", [])
+        ]
+
+        return BlastJobSummary(
+            job_id=data["job_id"],
+            campaign_name=data["campaign_name"],
+            folder_name=data["folder_name"],
+            subject=data.get("subject"),
+            preview_text=data.get("preview_text"),
+            created_at=datetime.fromisoformat(data["created_at"]),
+            completed_at=datetime.fromisoformat(data["completed_at"]) if data.get("completed_at") else None,
+            status=JobStatus(data["status"]),
+            total_emails=data["total_emails"],
+            successful=data["successful"],
+            failed=data["failed"],
+            emails=emails,
+        )
 
 
 # Global storage manager instance

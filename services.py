@@ -10,7 +10,7 @@ from typing import Optional
 from pptx import Presentation
 
 from config import settings
-from models import JobStatus, MemberStatus, MemberResult, Member
+from models import JobStatus, MemberStatus, MemberResult, Member, BlastMemberResult
 from storage import storage
 
 logger = logging.getLogger(__name__)
@@ -342,3 +342,240 @@ def process_certificates_job(
 
 # Global service instance
 certificate_service = CertificateService()
+
+
+class CampaignService:
+    """Service for managing and sending blast email campaigns."""
+
+    def __init__(self):
+        self.campaigns_folder = Path(settings.campaigns_folder)
+
+    def list_campaigns(self) -> list[dict]:
+        """List all available campaigns."""
+        campaigns = []
+        if not self.campaigns_folder.exists():
+            return campaigns
+
+        for campaign_dir in self.campaigns_folder.iterdir():
+            if not campaign_dir.is_dir():
+                continue
+
+            template_path = campaign_dir / "index.html"
+            has_template = template_path.exists()
+
+            attachments = []
+            for file in campaign_dir.iterdir():
+                if file.is_file() and file.name != "index.html":
+                    attachments.append(file.name)
+
+            campaigns.append({
+                "name": campaign_dir.name,
+                "has_template": has_template,
+                "attachments": sorted(attachments),
+            })
+
+        return sorted(campaigns, key=lambda x: x["name"])
+
+    def get_campaign(self, campaign_name: str) -> Optional[dict]:
+        """Get campaign details by name."""
+        campaign_path = self.campaigns_folder / campaign_name
+        if not campaign_path.exists() or not campaign_path.is_dir():
+            return None
+
+        template_path = campaign_path / "index.html"
+        if not template_path.exists():
+            return None
+
+        with open(template_path, "r", encoding="utf-8") as f:
+            html_content = f.read()
+
+        attachments = []
+        for file in campaign_path.iterdir():
+            if file.is_file() and file.name != "index.html":
+                attachments.append(file)
+
+        return {
+            "name": campaign_name,
+            "html_content": html_content,
+            "attachments": attachments,
+        }
+
+    def send_blast_email(
+        self,
+        recipient: str,
+        campaign_name: str,
+        html_content: str,
+        attachments: list[Path],
+        subject: Optional[str] = None,
+        preview_text: Optional[str] = None,
+    ) -> tuple[bool, Optional[str]]:
+        """Send blast email to recipient. Returns (success, error_message)."""
+        email_subject = subject or campaign_name
+
+        try:
+            msg = EmailMessage()
+            msg["From"] = settings.sender_email
+            msg["To"] = recipient
+            msg["Subject"] = email_subject
+            
+            if preview_text:
+                msg.set_content(preview_text)
+            else:
+                msg.set_content(
+                    "This email contains HTML. Please view it in an HTML-compatible client."
+                )
+            msg.add_alternative(html_content, subtype="html")
+
+            for attachment_path in attachments:
+                with open(attachment_path, "rb") as f:
+                    file_content = f.read()
+                filename = attachment_path.name
+                maintype = "application"
+                subtype = "octet-stream"
+                if filename.lower().endswith(".pdf"):
+                    subtype = "pdf"
+                elif filename.lower().endswith((".png", ".jpg", ".jpeg", ".gif")):
+                    maintype = "image"
+                    subtype = filename.lower().split(".")[-1]
+                    if subtype == "jpg":
+                        subtype = "jpeg"
+                msg.add_attachment(
+                    file_content,
+                    maintype=maintype,
+                    subtype=subtype,
+                    filename=filename,
+                )
+
+            logger.info(f"Sending blast email from {settings.sender_email} to {recipient}")
+
+            error_msg = "Unknown error"
+            for attempt in range(settings.max_retries):
+                try:
+                    with smtplib.SMTP(settings.smtp_host, settings.smtp_port) as smtp:
+                        smtp.starttls()
+                        smtp.login(settings.sender_email, settings.app_password)
+                        smtp.send_message(msg)
+                        logger.info(f"Blast email sent successfully to {recipient}")
+                        return True, None
+                except Exception as e:
+                    error_msg = str(e)
+                    logger.warning(
+                        f"Failed to send to {recipient} (attempt {attempt + 1}/{settings.max_retries}): {error_msg}"
+                    )
+                    if attempt < settings.max_retries -1:
+                        time.sleep(settings.email_delay)
+
+            return False, f"Failed after {settings.max_retries} attempts: {error_msg}"
+
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"Error sending blast email to {recipient}: {error_msg}")
+            return False, error_msg
+
+
+def process_blast_job(
+    job_id: str,
+    campaign_name: str,
+    emails: list[str],
+    folder_name: str,
+    subject: Optional[str] = None,
+    preview_text: Optional[str] = None,
+) -> None:
+    """Background task to process blast email job."""
+    campaign_service = CampaignService()
+    campaign = campaign_service.get_campaign(campaign_name)
+
+    if not campaign:
+        logger.error(f"Campaign '{campaign_name}' not found")
+        storage.update_job_status(job_id, status=JobStatus.failed)
+        storage.mark_event_completed(campaign_name)
+        return
+
+    html_content = campaign["html_content"]
+    attachments = campaign["attachments"]
+    created_at = datetime.utcnow()
+
+    storage.update_job_status(job_id, status=JobStatus.processing)
+
+    email_results: list[BlastMemberResult] = []
+
+    for i, email in enumerate(emails, 1):
+        logger.info(f"Processing [{i}/{len(emails)}]: {email}")
+
+        result = BlastMemberResult(
+            email=email,
+            status=MemberStatus.pending,
+        )
+
+        try:
+            success, error = campaign_service.send_blast_email(
+                recipient=email,
+                campaign_name=campaign_name,
+                html_content=html_content,
+                attachments=attachments,
+                subject=subject,
+                preview_text=preview_text,
+            )
+
+            if success:
+                result.status = MemberStatus.sent
+                result.sent_at = datetime.utcnow()
+                storage.update_job_status(
+                    job_id,
+                    increment_completed=True,
+                    increment_successful=True,
+                )
+            else:
+                result.status = MemberStatus.failed
+                result.error = error
+                storage.update_job_status(
+                    job_id,
+                    increment_completed=True,
+                    increment_failed=True,
+                )
+
+        except Exception as e:
+            logger.exception(f"Error processing {email}: {e}")
+            result.status = MemberStatus.failed
+            result.error = str(e)
+            storage.update_job_status(
+                job_id,
+                increment_completed=True,
+                increment_failed=True,
+            )
+
+        email_results.append(result)
+
+        storage.write_blast_summary(
+            folder_name=folder_name,
+            job_id=job_id,
+            campaign_name=campaign_name,
+            emails=email_results,
+            status=JobStatus.processing,
+            created_at=created_at,
+            subject=subject,
+            preview_text=preview_text,
+        )
+
+    completed_at = datetime.utcnow()
+    final_status = JobStatus.completed
+
+    if all(e.status == MemberStatus.failed for e in email_results):
+        final_status = JobStatus.failed
+
+    storage.update_job_status(job_id, status=final_status)
+    storage.mark_event_completed(campaign_name)
+
+    storage.write_blast_summary(
+        folder_name=folder_name,
+        job_id=job_id,
+        campaign_name=campaign_name,
+        emails=email_results,
+        status=final_status,
+        created_at=created_at,
+        completed_at=completed_at,
+        subject=subject,
+        preview_text=preview_text,
+    )
+
+    logger.info(f"Blast job {job_id} completed with status: {final_status.value}")

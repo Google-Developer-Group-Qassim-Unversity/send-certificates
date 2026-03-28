@@ -54,6 +54,9 @@ if ENVIRONMENT == "production":
 else:  # development
     JOBS_FOLDER = "jobs"
 
+# Campaigns folder
+CAMPAIGNS_FOLDER = "campaigns"
+
 
 # ============ SETTINGS CLASS (for backward compatibility) ============
 
@@ -70,6 +73,7 @@ class Settings:
     max_retries = MAX_RETRIES
     email_delay = EMAIL_DELAY
     jobs_folder = JOBS_FOLDER
+    campaigns_folder = CAMPAIGNS_FOLDER
     delimiter_start = DELIMITER_START
     delimiter_end = DELIMITER_END
     name_placeholder = NAME_PLACEHOLDER
