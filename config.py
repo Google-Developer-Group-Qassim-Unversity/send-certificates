@@ -17,7 +17,7 @@ if not APP_PASSWORD:
     raise ValueError("APP_PASSWORD environment variable is required in .env file")
 
 # Email configuration
-SENDER_EMAIL = "Info@kerneltics.com"
+SENDER_EMAIL = "gdg.qu1@gmail.com"
 SMTP_HOST = "smtp.gmail.com"
 SMTP_PORT = 587
 
@@ -29,6 +29,7 @@ EMAIL_TEMPLATE = "index.html"
 # Processing settings
 MAX_RETRIES = 3
 EMAIL_DELAY = 4
+BCC_BATCH_SIZE = 100
 
 # Placeholders
 DELIMITER_START = "<<"
@@ -72,6 +73,7 @@ class Settings:
     email_template = EMAIL_TEMPLATE
     max_retries = MAX_RETRIES
     email_delay = EMAIL_DELAY
+    bcc_batch_size = BCC_BATCH_SIZE
     jobs_folder = JOBS_FOLDER
     campaigns_folder = CAMPAIGNS_FOLDER
     delimiter_start = DELIMITER_START

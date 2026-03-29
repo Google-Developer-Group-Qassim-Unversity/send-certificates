@@ -400,23 +400,25 @@ class CampaignService:
             "attachments": attachments,
         }
 
-    def send_blast_email(
+    def send_blast_email_batch(
         self,
-        recipient: str,
+        recipients: list[str],
         campaign_name: str,
         html_content: str,
         attachments: list[Path],
         subject: Optional[str] = None,
         preview_text: Optional[str] = None,
     ) -> tuple[bool, Optional[str]]:
-        """Send blast email to recipient. Returns (success, error_message)."""
+        """Send blast email to multiple recipients via BCC. Returns (success, error_message)."""
         email_subject = subject or campaign_name
+        batch_size = len(recipients)
 
         try:
             msg = EmailMessage()
             msg["From"] = settings.sender_email
-            msg["To"] = recipient
+            msg["To"] = settings.sender_email
             msg["Subject"] = email_subject
+            msg["Bcc"] = ", ".join(recipients)
             
             if preview_text:
                 msg.set_content(preview_text)
@@ -446,7 +448,7 @@ class CampaignService:
                     filename=filename,
                 )
 
-            logger.info(f"Sending blast email from {settings.sender_email} to {recipient}")
+            logger.info(f"Sending blast email to {batch_size} recipients via BCC")
 
             error_msg = "Unknown error"
             for attempt in range(settings.max_retries):
@@ -455,21 +457,21 @@ class CampaignService:
                         smtp.starttls()
                         smtp.login(settings.sender_email, settings.app_password)
                         smtp.send_message(msg)
-                        logger.info(f"Blast email sent successfully to {recipient}")
+                        logger.info(f"Blast email sent successfully to {batch_size} recipients")
                         return True, None
                 except Exception as e:
                     error_msg = str(e)
                     logger.warning(
-                        f"Failed to send to {recipient} (attempt {attempt + 1}/{settings.max_retries}): {error_msg}"
+                        f"Failed to send batch (attempt {attempt + 1}/{settings.max_retries}): {error_msg}"
                     )
-                    if attempt < settings.max_retries -1:
+                    if attempt < settings.max_retries - 1:
                         time.sleep(settings.email_delay)
 
             return False, f"Failed after {settings.max_retries} attempts: {error_msg}"
 
         except Exception as e:
             error_msg = str(e)
-            logger.error(f"Error sending blast email to {recipient}: {error_msg}")
+            logger.error(f"Error sending blast email batch: {error_msg}")
             return False, error_msg
 
 
@@ -494,22 +496,27 @@ def process_blast_job(
     html_content = campaign["html_content"]
     attachments = campaign["attachments"]
     created_at = datetime.utcnow()
+    batch_size = settings.bcc_batch_size
 
     storage.update_job_status(job_id, status=JobStatus.processing)
 
     email_results: list[BlastMemberResult] = []
+    total_emails = len(emails)
 
-    for i, email in enumerate(emails, 1):
-        logger.info(f"Processing [{i}/{len(emails)}]: {email}")
+    for batch_start in range(0, total_emails, batch_size):
+        batch_end = min(batch_start + batch_size, total_emails)
+        batch = emails[batch_start:batch_end]
+        batch_num = (batch_start // batch_size) + 1
+        total_batches = (total_emails + batch_size - 1) // batch_size
 
-        result = BlastMemberResult(
-            email=email,
-            status=MemberStatus.pending,
-        )
+        logger.info(f"Processing batch {batch_num}/{total_batches} ({len(batch)} emails)")
+
+        batch_success = False
+        batch_error = None
 
         try:
-            success, error = campaign_service.send_blast_email(
-                recipient=email,
+            success, error = campaign_service.send_blast_email_batch(
+                recipients=batch,
                 campaign_name=campaign_name,
                 html_content=html_content,
                 attachments=attachments,
@@ -517,34 +524,28 @@ def process_blast_job(
                 preview_text=preview_text,
             )
 
-            if success:
-                result.status = MemberStatus.sent
-                result.sent_at = datetime.utcnow()
-                storage.update_job_status(
-                    job_id,
-                    increment_completed=True,
-                    increment_successful=True,
-                )
-            else:
-                result.status = MemberStatus.failed
-                result.error = error
-                storage.update_job_status(
-                    job_id,
-                    increment_completed=True,
-                    increment_failed=True,
-                )
+            batch_success = success
+            batch_error = error
 
         except Exception as e:
-            logger.exception(f"Error processing {email}: {e}")
-            result.status = MemberStatus.failed
-            result.error = str(e)
-            storage.update_job_status(
-                job_id,
-                increment_completed=True,
-                increment_failed=True,
-            )
+            logger.exception(f"Error processing batch {batch_num}: {e}")
+            batch_error = str(e)
 
-        email_results.append(result)
+        for email in batch:
+            result = BlastMemberResult(
+                email=email,
+                status=MemberStatus.sent if batch_success else MemberStatus.failed,
+                sent_at=datetime.utcnow() if batch_success else None,
+                error=batch_error if not batch_success else None,
+            )
+            email_results.append(result)
+
+        storage.update_job_status(
+            job_id,
+            increment_completed=True,
+            increment_successful=len(batch) if batch_success else 0,
+            increment_failed=len(batch) if not batch_success else 0,
+        )
 
         storage.write_blast_summary(
             folder_name=folder_name,

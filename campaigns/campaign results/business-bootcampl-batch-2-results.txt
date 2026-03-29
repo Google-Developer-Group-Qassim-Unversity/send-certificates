@@ -1,0 +1,50 @@
+══════════════════════════════════════════════════
+🚀 CAMPAIGN SENDER CLI
+══════════════════════════════════════════════════
+
+? Select a campaign: business-bootcamp
+? How do you want to provide emails? 📁 File - Load from files/ folder
+
+? Select a file: 📄 All GDG Emails - 450.csv
+
+📧 Found 450 unique emails
+
+──────────────────────────────
+📧 Email Settings
+──────────────────────────────
+? Email subject (default: business-bootcamp): دعوة للتسجيل "معسكر ريادة الأعمال"
+? Preview text (optional, shown before opening email):
+
+📋 Subject: دعوة للتسجيل "معسكر ريادة الأعمال"
+📋 Preview: (none)
+? Send to 450 recipients?
+  Campaign: business-bootcamp
+  Subject: دعوة للتسجيل "معسكر ريادة الأعمال" Yes
+
+🚀 Starting campaign...
+──────────────────────────────
+2026-03-29 20:07:43,706 - INFO - Processing batch 1/5 (100 emails)
+2026-03-29 20:07:43,722 - INFO - Sending blast email to 100 recipients via BCC
+2026-03-29 20:08:29,695 - INFO - Blast email sent successfully to 100 recipients
+2026-03-29 20:08:29,800 - INFO - Processing batch 2/5 (100 emails)
+2026-03-29 20:08:29,812 - INFO - Sending blast email to 100 recipients via BCC
+2026-03-29 20:09:03,374 - INFO - Blast email sent successfully to 100 recipients
+2026-03-29 20:09:03,464 - INFO - Processing batch 3/5 (100 emails)
+2026-03-29 20:09:03,472 - INFO - Sending blast email to 100 recipients via BCC
+2026-03-29 20:09:37,286 - INFO - Blast email sent successfully to 100 recipients
+2026-03-29 20:09:37,378 - INFO - Processing batch 4/5 (100 emails)
+2026-03-29 20:09:37,386 - INFO - Sending blast email to 100 recipients via BCC
+2026-03-29 20:10:04,406 - INFO - Blast email sent successfully to 100 recipients
+2026-03-29 20:10:04,507 - INFO - Processing batch 5/5 (50 emails)
+2026-03-29 20:10:04,514 - INFO - Sending blast email to 50 recipients via BCC
+2026-03-29 20:10:16,994 - INFO - Blast email sent successfully to 50 recipients
+2026-03-29 20:10:17,091 - INFO - Blast job 06dd4e86-735c-4706-9fb0-a87288d37eda completed with status: completed
+
+══════════════════════════════════════════════════
+📊 SUMMARY
+══════════════════════════════════════════════════
+  Campaign: business-bootcamp
+  Total emails: 450
+  ✅ Successful: 450
+  ❌ Failed: 0
+══════════════════════════════════════════════════
