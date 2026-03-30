@@ -166,7 +166,7 @@ class BlastMemberResult(BaseModel):
 
 class BlastJobSummary(BaseModel):
     job_id: str
-    campaign_name: str
+    campaign_name: Optional[str] = None
     folder_name: str
     subject: Optional[str] = None
     preview_text: Optional[str] = None
@@ -177,6 +177,13 @@ class BlastJobSummary(BaseModel):
     successful: int
     failed: int
     emails: list[BlastMemberResult]
+
+
+class DirectBlastResponse(BaseModel):
+    job_id: str
+    folder_name: str
+    status: JobStatus
+    message: str
 
 
 class CampaignInfo(BaseModel):

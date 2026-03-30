@@ -580,3 +580,97 @@ def process_blast_job(
     )
 
     logger.info(f"Blast job {job_id} completed with status: {final_status.value}")
+
+
+def process_direct_blast_job(
+    job_id: str,
+    emails: list[str],
+    html_content: str,
+    folder_name: str,
+    subject: str,
+    preview_text: Optional[str] = None,
+) -> None:
+    """Background task to process direct blast email job."""
+    campaign_service = CampaignService()
+    created_at = datetime.utcnow()
+    batch_size = settings.bcc_batch_size
+
+    storage.update_job_status(job_id, status=JobStatus.processing)
+
+    email_results: list[BlastMemberResult] = []
+    total_emails = len(emails)
+
+    for batch_start in range(0, total_emails, batch_size):
+        batch_end = min(batch_start + batch_size, total_emails)
+        batch = emails[batch_start:batch_end]
+        batch_num = (batch_start // batch_size) + 1
+        total_batches = (total_emails + batch_size - 1) // batch_size
+
+        logger.info(f"Processing batch {batch_num}/{total_batches} ({len(batch)} emails)")
+
+        batch_success = False
+        batch_error = None
+
+        try:
+            success, error = campaign_service.send_blast_email_batch(
+                recipients=batch,
+                campaign_name="direct-blast",
+                html_content=html_content,
+                attachments=[],
+                subject=subject,
+                preview_text=preview_text,
+            )
+
+            batch_success = success
+            batch_error = error
+
+        except Exception as e:
+            logger.exception(f"Error processing batch {batch_num}: {e}")
+            batch_error = str(e)
+
+        for email in batch:
+            result = BlastMemberResult(
+                email=email,
+                status=MemberStatus.sent if batch_success else MemberStatus.failed,
+                sent_at=datetime.utcnow() if batch_success else None,
+                error=batch_error if not batch_success else None,
+            )
+            email_results.append(result)
+
+        storage.update_job_status(
+            job_id,
+            increment_completed=True,
+            increment_successful=len(batch) if batch_success else 0,
+            increment_failed=len(batch) if not batch_success else 0,
+        )
+
+        storage.write_blast_summary(
+            folder_name=folder_name,
+            job_id=job_id,
+            emails=email_results,
+            status=JobStatus.processing,
+            created_at=created_at,
+            subject=subject,
+            preview_text=preview_text,
+        )
+
+    completed_at = datetime.utcnow()
+    final_status = JobStatus.completed
+
+    if all(e.status == MemberStatus.failed for e in email_results):
+        final_status = JobStatus.failed
+
+    storage.update_job_status(job_id, status=final_status)
+
+    storage.write_blast_summary(
+        folder_name=folder_name,
+        job_id=job_id,
+        emails=email_results,
+        status=final_status,
+        created_at=created_at,
+        completed_at=completed_at,
+        subject=subject,
+        preview_text=preview_text,
+    )
+
+    logger.info(f"Direct blast job {job_id} completed with status: {final_status.value}")

@@ -2,8 +2,9 @@ import uuid
 import logging
 from datetime import datetime
 from contextlib import asynccontextmanager
+from typing import Optional
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks, status
+from fastapi import FastAPI, HTTPException, BackgroundTasks, status, Query, Body
 from fastapi.responses import FileResponse
 
 from config import settings
@@ -23,9 +24,11 @@ from models import (
     BlastJobSummary,
     CampaignsList,
     CampaignInfo,
+    DirectBlastResponse,
+    EmailStr,
 )
 from storage import storage
-from services import process_certificates_job, certificate_service, CampaignService, process_blast_job
+from services import process_certificates_job, certificate_service, CampaignService, process_blast_job, process_direct_blast_job
 
 # Configure logging
 logging.basicConfig(
@@ -425,6 +428,73 @@ async def send_blast_campaign(
         folder_name=folder_name,
         status=JobStatus.pending,
         message=f"Blast job created and queued for processing. {len(request.emails)} emails will be sent.",
+    )
+
+
+@app.post(
+    "/blasts",
+    response_model=DirectBlastResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Send direct blast email",
+    description="Send a blast email directly with provided HTML content in request body. "
+    "Use query parameters for metadata (emails as comma-separated or repeated values).",
+)
+async def send_direct_blast(
+    background_tasks: BackgroundTasks,
+    html: bytes = Body(..., media_type="text/html", description="HTML content for the email body"),
+    emails: list[EmailStr] = Query(..., description="Recipient email addresses"),
+    subject: str = Query(..., description="Email subject"),
+    preview_text: Optional[str] = Query(None, description="Preview text for email clients"),
+):
+    """Send direct blast email with custom HTML."""
+    html_content = html.decode("utf-8")
+
+    if not html_content.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="HTML content cannot be empty",
+        )
+
+    blast_id = f"direct-blast-{int(datetime.utcnow().timestamp())}"
+
+    if storage.is_event_processing(blast_id):
+        active_job_id = storage.get_active_job_id(blast_id)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"A direct blast is already being processed (job_id: {active_job_id}). Please wait until it completes.",
+        )
+
+    job_id = str(uuid.uuid4())
+    folder_name = storage.create_job_folder(blast_id, job_id)
+
+    storage.mark_event_processing(blast_id, job_id)
+
+    storage.initialize_job_status(
+        job_id=job_id,
+        event_name=blast_id,
+        folder_name=folder_name,
+        total_members=len(emails),
+    )
+
+    background_tasks.add_task(
+        process_direct_blast_job,
+        job_id=job_id,
+        emails=emails,
+        html_content=html_content,
+        folder_name=folder_name,
+        subject=subject,
+        preview_text=preview_text,
+    )
+
+    logger.info(
+        f"Created direct blast job {job_id} with {len(emails)} recipients"
+    )
+
+    return DirectBlastResponse(
+        job_id=job_id,
+        folder_name=folder_name,
+        status=JobStatus.pending,
+        message=f"Direct blast job created and queued for processing. {len(emails)} emails will be sent.",
     )
 
 

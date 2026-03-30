@@ -292,13 +292,13 @@ class StorageManager:
         self,
         folder_name: str,
         job_id: str,
-        campaign_name: str,
         emails: list[BlastMemberResult],
         status: JobStatus,
         created_at: datetime,
         completed_at: Optional[datetime] = None,
         subject: Optional[str] = None,
         preview_text: Optional[str] = None,
+        campaign_name: Optional[str] = None,
     ) -> None:
         """Write or update blast summary.json file."""
         folder_path = self.get_job_folder_path(folder_name)
