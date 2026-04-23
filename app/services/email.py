@@ -66,3 +66,45 @@ def send_certificate_email(
                 time.sleep(EMAIL_DELAY)
 
     raise RuntimeError(f"Failed after {MAX_RETRIES} attempts: {last_error}")
+
+
+def send_blast_email(
+    from_address: EmailLogsFromAddress,
+    recipients: list[str],
+    html_content: str,
+    subject: str,
+    preview_text: str | None = None,
+) -> None:
+    msg = EmailMessage()
+    msg["From"] = from_address.value
+    msg["To"] = from_address.value
+    msg["Subject"] = subject
+    msg["Bcc"] = ", ".join(recipients)
+
+    if preview_text:
+        msg.set_content(preview_text)
+    else:
+        msg.set_content("This email contains HTML. Please view it in an HTML-compatible client.")
+    msg.add_alternative(html_content, subtype="html")
+
+    sender_email = from_address.value
+    app_password = APP_PASSWORDS[from_address]
+
+    logger.info(f"Sending blast email to {len(recipients)} recipients via BCC")
+
+    last_error = "Unknown error"
+    for attempt in range(MAX_RETRIES):
+        try:
+            with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as smtp:
+                smtp.starttls()
+                smtp.login(sender_email, app_password)
+                smtp.send_message(msg)
+                logger.info(f"Blast email sent to {len(recipients)} recipients")
+                return
+        except Exception as e:
+            last_error = str(e)
+            logger.warning(f"Blast attempt {attempt + 1}/{MAX_RETRIES} failed: {last_error}")
+            if attempt < MAX_RETRIES - 1:
+                time.sleep(EMAIL_DELAY)
+
+    raise RuntimeError(f"Blast failed after {MAX_RETRIES} attempts: {last_error}")
