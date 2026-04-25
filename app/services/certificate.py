@@ -32,9 +32,9 @@ def _render_env():
     return {**os.environ, "FONTCONFIG_FILE": str(FONTCONFIG_FILE)}
 
 
-def svg_to_png(svg_path, output_png_path=None, width=1440, height=1024):
-    if output_png_path is None:
-        output_png_path = svg_path.replace(".svg", ".png")
+def svg_to_raster(svg_path, output_path=None, width=1440, height=1024, fmt="png"):
+    if output_path is None:
+        output_path = svg_path.replace(".svg", f".{fmt}")
 
     rsvg = shutil.which("rsvg-convert")
     if not rsvg:
@@ -48,16 +48,16 @@ def svg_to_png(svg_path, output_png_path=None, width=1440, height=1024):
             "-h",
             str(height),
             "-f",
-            "png",
+            fmt,
             "-o",
-            output_png_path,
+            output_path,
             svg_path,
         ],
         check=True,
         env=_render_env(),
     )
-    logger.info(f"PNG saved: {output_png_path}")
-    return output_png_path
+    logger.info(f"{fmt.upper()} saved: {output_path}")
+    return output_path
 
 
 def replace_placeholder(
@@ -97,6 +97,7 @@ def generate_certificate(
     gender: MembersGender,
     lang: CertificateLanguage,
     output_dir: str = "/tmp",
+    fmt: str = "png",
 ):
     if lang == CertificateLanguage.ENGLISH:
         event_name_text = f'Has attended "{event_name}"'
@@ -126,7 +127,7 @@ def generate_certificate(
     with open(output_svg, "w", encoding="utf-8") as f:
         f.write(ET.tostring(root, encoding="unicode"))
 
-    output = svg_to_png(output_svg)
+    output = svg_to_raster(output_svg, fmt=fmt)
     os.remove(output_svg)
     logger.info(f"Certificate generated: {output}")
     return output

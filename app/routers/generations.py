@@ -55,6 +55,7 @@ def generate_certificate_endpoint(request: CertificateGenerationRequest):
                 gender=request.member.gender,
                 lang=request.language,
                 output_dir=tmp_dir,
+                fmt=request.format.value,
             )
 
             url = upload_certificate(png_path, request.format.value)
