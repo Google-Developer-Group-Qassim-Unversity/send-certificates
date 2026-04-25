@@ -1,7 +1,7 @@
 .venv
-*output-files
 __pycache__
 .env
+.env.local
 .ruff_cache
-jobs
-files
+.mypy_cache
+output
