@@ -10,14 +10,11 @@ jobs:
     steps:
     - name: Deploy using ssh
       uses: appleboy/ssh-action@master
-      env:
-        APP_PASSWORD: ${{ secrets.APP_PASSWORD }}
       with:
-        host: ${{ secrets.HOST }}
-        username: ${{ secrets.USERNAME }}
-        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        host: ${{ secrets.INFISICAL_VPS_HOST }}
+        username: ${{ secrets.INFISICAL_VPS_USER }}
+        key: ${{ secrets.INFISICAL_GITHUB_SSH_PRIVATE_KEY }}
         port: 22
-        envs: APP_PASSWORD
         script: |
           set -e
           export PATH="$HOME/.local/bin:$PATH"
@@ -31,34 +28,49 @@ jobs:
           PM2_PATH="/home/ubuntu/.nvm/versions/node/v24.12.0/bin/"
           export PATH="$PM2_PATH:$PATH"
 
+          INFISICAL_ENV="prod"
+          INFISICAL_ENV_PATH="/emails-backend"
+          INFISICAL_PROJECT_ID="300b1e97-7e52-4a4e-872d-053b9082cac5"
+
           echo "Cloning new repository..."
           rm -rf "$TARGET_DIR"
           git clone --branch $BRANCH "$REPO_URL" "$TARGET_DIR"
           echo "Deployment Complete ✅."
           echo "==============================="
 
-          echo "📄 Checking LibreOffice..."
-          if ! command -v soffice >/dev/null 2>&1; then
-              echo "Installing LibreOffice..."
+          echo "📄 Checking rsvg-convert..."
+          if ! command -v rsvg-convert >/dev/null 2>&1; then
+              echo "Installing librsvg2-bin..."
               sudo apt-get update -qq
-              sudo apt-get install -y libreoffice
-              echo "LibreOffice installed ✅."
+              sudo apt-get install -y librsvg2-bin
+              echo "rsvg-convert installed ✅."
           else
-              echo "LibreOffice already installed ✅."
+              echo "rsvg-convert already installed ✅."
           fi
           echo "==============================="
 
           echo "Running Build commands...🚀"
           cd "$TARGET_DIR"
 
-          echo "🥷 Setting up environment variables..."
-          if [ -z "$APP_PASSWORD" ]; then
-              echo "❗ APP_PASSWORD is not set. Exiting..."
-              exit 1
+          if ! command -v infisical >/dev/null 2>&1; then
+              echo "🔑 Installing Infisical CLI..."
+              curl -1sLf 'https://dl.cloudsmith.io/public/infisical/infisical-cli/setup.deb.sh' | sudo -E bash
+              sudo apt-get update -qq
+              sudo apt-get install -y infisical
+          else
+              echo "🔑 Found Infisical at $(command -v infisical)"
           fi
 
-          echo "ENVIRONMENT=production" > .env
-          echo "APP_PASSWORD=$APP_PASSWORD" >> .env
+          echo "🥷 logging in to Infisical..."
+          source /etc/infisical/prod.env
+          INFISICAL_TOKEN="$(
+            infisical login \
+              --method=$INFISICAL_AUTH_METHOD \
+              --client-id="$INFISICAL_UNIVERSAL_AUTH_CLIENT_ID" \
+              --client-secret="$INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET" \
+              --plain --silent
+          )"
+          export INFISICAL_TOKEN
 
           if ! command -v uv >/dev/null 2>&1; then
               echo "☀️ Installing uv..."
@@ -85,7 +97,7 @@ jobs:
 
           echo "💾 Creating process $NAME..."
           pm2 delete $NAME || true
-          pm2 start "uv run python main.py" --name $NAME --time
+          pm2 start "INFISICAL_TOKEN=$INFISICAL_TOKEN infisical run --env=$INFISICAL_ENV --path='$INFISICAL_ENV_PATH' --projectId=$INFISICAL_PROJECT_ID -- uv run uvicorn app.main:app --port $PORT --host 0.0.0.0" --name $NAME --time
           pm2 save
           echo "Application is running on port $PORT ✅."
           echo "==============================="

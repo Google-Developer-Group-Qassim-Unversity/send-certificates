@@ -4,10 +4,10 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(".env.local")
 
 
-class EmailLogsFromAddress(str, enum.Enum):
+class EmailLogsFromAddress(enum.StrEnum):
     INFO_KERNELTICS = "info@kerneltics.com"
     GDG_QASSIM = "gdg.qu1@gmail.com"
 

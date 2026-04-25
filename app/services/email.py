@@ -7,10 +7,10 @@ from app.config import (
     APP_PASSWORDS,
     EMAIL_DELAY,
     EMAIL_TEMPLATE_PATH,
-    EmailLogsFromAddress,
     MAX_RETRIES,
     SMTP_HOST,
     SMTP_PORT,
+    EmailLogsFromAddress,
 )
 
 logger = logging.getLogger(__name__)

@@ -3,7 +3,7 @@ import smtplib
 
 from fastapi import APIRouter
 
-from app.config import APP_PASSWORDS, EmailLogsFromAddress, SMTP_HOST, SMTP_PORT
+from app.config import APP_PASSWORDS, SMTP_HOST, SMTP_PORT, EmailLogsFromAddress
 
 router = APIRouter()
 

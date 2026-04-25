@@ -1,5 +1,5 @@
 import logging
-from typing import Optional
+from typing import Annotated
 
 from fastapi import APIRouter, Body, HTTPException, Query, status
 from pydantic import EmailStr
@@ -14,11 +14,11 @@ router = APIRouter()
 
 @router.post("", status_code=status.HTTP_200_OK)
 def send_blast(
-    html: bytes = Body(..., media_type="text/html", description="HTML email body"),
-    emails: list[EmailStr] = Query(..., description="Recipient email addresses"),
-    subject: str = Query(..., description="Email subject"),
-    preview_text: Optional[str] = Query(None, description="Preview text for email clients"),
-    from_address: EmailLogsFromAddress = Query(..., description="Sender email address"),
+    html: Annotated[bytes, Body(media_type="text/html", description="HTML email body")],
+    emails: Annotated[list[EmailStr], Query(description="Recipient email addresses")],
+    subject: Annotated[str, Query(description="Email subject")],
+    from_address: Annotated[EmailLogsFromAddress, Query(description="Sender email address")],
+    preview_text: Annotated[str | None, Query(description="Preview text for email clients")] = None,
 ):
     try:
         html_content = html.decode("utf-8")
@@ -45,4 +45,4 @@ def send_blast(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e),
-        )
+        ) from None

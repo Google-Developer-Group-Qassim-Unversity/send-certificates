@@ -18,12 +18,12 @@ ET.register_namespace("", SVG_NS)
 ET.register_namespace("xlink", "http://www.w3.org/1999/xlink")
 
 
-class CertificateLanguage(str, enum.Enum):
+class CertificateLanguage(enum.StrEnum):
     ARABIC = "ar"
     ENGLISH = "en"
 
 
-class MembersGender(str, enum.Enum):
+class MembersGender(enum.StrEnum):
     MALE = "Male"
     FEMALE = "Female"
 
@@ -41,7 +41,18 @@ def svg_to_png(svg_path, output_png_path=None, width=1440, height=1024):
         raise RuntimeError("rsvg-convert not found (install librsvg)")
 
     subprocess.run(
-        [rsvg, "-w", str(width), "-h", str(height), "-f", "png", "-o", output_png_path, svg_path],
+        [
+            rsvg,
+            "-w",
+            str(width),
+            "-h",
+            str(height),
+            "-f",
+            "png",
+            "-o",
+            output_png_path,
+            svg_path,
+        ],
         check=True,
         env=_render_env(),
     )
@@ -49,7 +60,13 @@ def svg_to_png(svg_path, output_png_path=None, width=1440, height=1024):
     return output_png_path
 
 
-def replace_placeholder(root, element_id: str, value: str, lang: CertificateLanguage, center_x=CENTER_X):
+def replace_placeholder(
+    root,
+    element_id: str,
+    value: str,
+    lang: CertificateLanguage,
+    center_x=CENTER_X,
+):
     el = root.find(f'.//{{{SVG_NS}}}text[@id="{element_id}"]')
     if el is None:
         return False
