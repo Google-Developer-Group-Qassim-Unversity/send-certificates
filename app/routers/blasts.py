@@ -5,8 +5,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
 
+import httpx
 from fastapi import APIRouter, Body, HTTPException, Query, status
-from pydantic import EmailStr
+from pydantic import BaseModel, EmailStr
 
 from app.config import EmailLogsFromAddress
 from app.services.email import send_blast_email
@@ -18,6 +19,12 @@ router = APIRouter()
 LOGS_DIR = Path(__file__).resolve().parent.parent.parent / "logs"
 
 
+class BlastAttachment(BaseModel):
+    url: str
+    filename: str
+    content_type: str | None = None
+
+
 def _write_blast_log(
     from_address: str,
     subject: str,
@@ -25,6 +32,7 @@ def _write_blast_log(
     emails: list[EmailStr],
     response_status: int,
     response_body: dict,
+    attachment_filenames: list[str] | None = None,
     tb: str | None = None,
 ) -> Path:
     LOGS_DIR.mkdir(exist_ok=True)
@@ -36,6 +44,7 @@ def _write_blast_log(
         "subject": subject,
         "preview_text": preview_text,
         "emails": [str(e) for e in emails],
+        "attachments": attachment_filenames or [],
     }
 
     lines = [
@@ -62,7 +71,13 @@ def send_blast(
     subject: Annotated[str, Query(description="Email subject")],
     from_address: Annotated[EmailLogsFromAddress, Query(description="Sender email address")],
     preview_text: Annotated[str | None, Query(description="Preview text for email clients")] = None,
+    attachments: Annotated[
+        str | None, Query(description="JSON-encoded list of {url, filename, content_type} attachments")
+    ] = None,
 ):
+    attachment_specs = [BlastAttachment.model_validate(a) for a in json.loads(attachments)] if attachments else []
+    attachment_filenames = [a.filename for a in attachment_specs]
+
     try:
         html_content = html.decode("utf-8")
 
@@ -74,6 +89,7 @@ def send_blast(
                 emails=emails,
                 response_status=400,
                 response_body={"detail": "HTML content cannot be empty"},
+                attachment_filenames=attachment_filenames,
             )
             logger.warning(f"Blast rejected (400): empty HTML | log={log_path.name}")
 
@@ -82,12 +98,23 @@ def send_blast(
                 detail="HTML content cannot be empty",
             )
 
+        attachments_data: list[tuple[bytes, str, str]] = []
+        with httpx.Client(timeout=30.0) as client:
+            for attachment in attachment_specs:
+                response = client.get(attachment.url)
+                response.raise_for_status()
+                content_type = attachment.content_type or response.headers.get(
+                    "content-type", "application/octet-stream"
+                )
+                attachments_data.append((response.content, attachment.filename, content_type))
+
         send_blast_email(
             from_address=from_address,
             recipients=[e for e in emails],
             html_content=html_content,
             subject=subject,
             preview_text=preview_text,
+            attachments=attachments_data,
         )
 
         response_body = {"status": "sent", "recipients": len(emails)}
@@ -98,6 +125,7 @@ def send_blast(
             emails=emails,
             response_status=200,
             response_body=response_body,
+            attachment_filenames=attachment_filenames,
         )
         logger.info(f"Blast sent: {len(emails)} recipients via {from_address} | log={log_path.name}")
 
@@ -113,6 +141,7 @@ def send_blast(
             emails=emails,
             response_status=500,
             response_body={"detail": str(e)},
+            attachment_filenames=attachment_filenames,
             tb=tb,
         )
         logger.error(f"Blast failed (500): {e} | log={log_path.name}")

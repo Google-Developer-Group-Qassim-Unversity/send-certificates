@@ -77,6 +77,7 @@ def send_blast_email(
     html_content: str,
     subject: str,
     preview_text: str | None = None,
+    attachments: list[tuple[bytes, str, str]] | None = None,
 ) -> None:
     msg = EmailMessage()
     msg["From"] = from_address.value
@@ -89,6 +90,15 @@ def send_blast_email(
     else:
         msg.set_content("This email contains HTML. Please view it in an HTML-compatible client.")
     msg.add_alternative(html_content, subtype="html")
+
+    for content, filename, content_type in attachments or []:
+        maintype, _, subtype = (content_type or "application/octet-stream").partition("/")
+        msg.add_attachment(
+            content,
+            maintype=maintype or "application",
+            subtype=subtype or "octet-stream",
+            filename=filename,
+        )
 
     logger.info(f"Sending blast email to {len(recipients)} recipients via BCC")
     _send_with_retry(msg, from_address, log_label=f"Blast email to {len(recipients)} recipients")
