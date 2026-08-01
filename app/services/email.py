@@ -16,6 +16,28 @@ from app.config import (
 logger = logging.getLogger(__name__)
 
 
+def _send_with_retry(msg: EmailMessage, from_address: EmailLogsFromAddress, *, log_label: str) -> None:
+    sender_email = from_address.value
+    app_password = APP_PASSWORDS[from_address]
+
+    last_error = "Unknown error"
+    for attempt in range(MAX_RETRIES):
+        try:
+            with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as smtp:
+                smtp.starttls()
+                smtp.login(sender_email, app_password)
+                smtp.send_message(msg)
+                logger.info(f"{log_label} sent")
+                return
+        except Exception as e:
+            last_error = str(e)
+            logger.warning(f"{log_label} attempt {attempt + 1}/{MAX_RETRIES} failed: {last_error}")
+            if attempt < MAX_RETRIES - 1:
+                time.sleep(EMAIL_DELAY)
+
+    raise RuntimeError(f"{log_label} failed after {MAX_RETRIES} attempts: {last_error}")
+
+
 def send_certificate_email(
     from_address: EmailLogsFromAddress,
     recipient: str,
@@ -45,27 +67,8 @@ def send_certificate_email(
         filename=f"{event_name} شهادة حضور.png",
     )
 
-    sender_email = from_address.value
-    app_password = APP_PASSWORDS[from_address]
-
-    logger.info(f"Sending email from {sender_email} to {recipient}")
-
-    last_error = "Unknown error"
-    for attempt in range(MAX_RETRIES):
-        try:
-            with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as smtp:
-                smtp.starttls()
-                smtp.login(sender_email, app_password)
-                smtp.send_message(msg)
-                logger.info(f"Email sent to {recipient}")
-                return
-        except Exception as e:
-            last_error = str(e)
-            logger.warning(f"Attempt {attempt + 1}/{MAX_RETRIES} failed for {recipient}: {last_error}")
-            if attempt < MAX_RETRIES - 1:
-                time.sleep(EMAIL_DELAY)
-
-    raise RuntimeError(f"Failed after {MAX_RETRIES} attempts: {last_error}")
+    logger.info(f"Sending email from {from_address.value} to {recipient}")
+    _send_with_retry(msg, from_address, log_label=f"Email to {recipient}")
 
 
 def send_blast_email(
@@ -87,24 +90,32 @@ def send_blast_email(
         msg.set_content("This email contains HTML. Please view it in an HTML-compatible client.")
     msg.add_alternative(html_content, subtype="html")
 
-    sender_email = from_address.value
-    app_password = APP_PASSWORDS[from_address]
-
     logger.info(f"Sending blast email to {len(recipients)} recipients via BCC")
+    _send_with_retry(msg, from_address, log_label=f"Blast email to {len(recipients)} recipients")
 
-    last_error = "Unknown error"
-    for attempt in range(MAX_RETRIES):
-        try:
-            with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as smtp:
-                smtp.starttls()
-                smtp.login(sender_email, app_password)
-                smtp.send_message(msg)
-                logger.info(f"Blast email sent to {len(recipients)} recipients")
-                return
-        except Exception as e:
-            last_error = str(e)
-            logger.warning(f"Blast attempt {attempt + 1}/{MAX_RETRIES} failed: {last_error}")
-            if attempt < MAX_RETRIES - 1:
-                time.sleep(EMAIL_DELAY)
 
-    raise RuntimeError(f"Blast failed after {MAX_RETRIES} attempts: {last_error}")
+def send_custom_html_email(
+    from_address: EmailLogsFromAddress,
+    recipient: str,
+    subject: str,
+    html_content: str,
+    attachments: list[tuple[bytes, str, str]] | None = None,
+) -> None:
+    msg = EmailMessage()
+    msg["From"] = from_address.value
+    msg["To"] = recipient
+    msg["Subject"] = subject
+    msg.set_content("This email contains HTML. Please view it in an HTML-compatible client.")
+    msg.add_alternative(html_content, subtype="html")
+
+    for content, filename, content_type in attachments or []:
+        maintype, _, subtype = (content_type or "application/octet-stream").partition("/")
+        msg.add_attachment(
+            content,
+            maintype=maintype or "application",
+            subtype=subtype or "octet-stream",
+            filename=filename,
+        )
+
+    logger.info(f"Sending custom email from {from_address.value} to {recipient}")
+    _send_with_retry(msg, from_address, log_label=f"Custom email to {recipient}")

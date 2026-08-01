@@ -1,6 +1,7 @@
 import logging
 import tempfile
 
+import httpx
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, EmailStr
 
@@ -11,7 +12,7 @@ from app.services.certificate import (
     generate_certificate,
     resolve_template,
 )
-from app.services.email import send_certificate_email
+from app.services.email import send_certificate_email, send_custom_html_email
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +72,78 @@ def send_certificate(request: CertificateRequest):
         raise
     except Exception as e:
         logger.exception(f"Certificate request failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        ) from None
+
+
+class CustomEmailAttachment(BaseModel):
+    url: str
+    filename: str
+    content_type: str | None = None
+
+
+class CustomEmailRequest(BaseModel):
+    from_address: EmailLogsFromAddress
+    recipient_email: EmailStr
+    subject: str
+    html_content: str
+    event: EventInfo
+    member: MemberInfo
+    language: CertificateLanguage
+    attachments: list[CustomEmailAttachment] = []
+
+
+@router.post("/custom", status_code=status.HTTP_200_OK)
+def send_custom_email(request: CustomEmailRequest):
+    try:
+        template = resolve_template(request.language, request.event.official)
+        if not template.exists():
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Template not found: {template}",
+            )
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            png_path = generate_certificate(
+                svg_certificate_file_path=str(template),
+                name=request.member.name,
+                event_name=request.event.name,
+                date=request.event.date,
+                gender=request.member.gender,
+                lang=request.language,
+                output_dir=tmp_dir,
+            )
+            with open(png_path, "rb") as f:
+                certificate_content = f.read()
+
+            attachments_data: list[tuple[bytes, str, str]] = [
+                (certificate_content, f"{request.event.name} شهادة حضور.png", "image/png")
+            ]
+
+            with httpx.Client(timeout=30.0) as client:
+                for attachment in request.attachments:
+                    response = client.get(attachment.url)
+                    response.raise_for_status()
+                    content_type = attachment.content_type or response.headers.get(
+                        "content-type", "application/octet-stream"
+                    )
+                    attachments_data.append((response.content, attachment.filename, content_type))
+
+            send_custom_html_email(
+                from_address=request.from_address,
+                recipient=request.recipient_email,
+                subject=request.subject,
+                html_content=request.html_content,
+                attachments=attachments_data,
+            )
+
+        return {"status": "sent", "email": request.recipient_email}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Custom email request failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e),
