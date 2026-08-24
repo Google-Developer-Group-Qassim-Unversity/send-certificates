@@ -70,10 +70,14 @@ The following secrets are managed in Infisical under the path `/emails-backend`:
 
 | Variable | Description |
 | --- | --- |
+| `APP_PASSWORD_KERNELTICS` | Gmail app password for `info@kerneltics.com` -- used on the default (Google) sending path |
+| `APP_PASSWORD_GDG_QASSIM` | Gmail app password for `gdg.qu1@gmail.com` -- used on the default (Google) sending path |
 | `AWS_REGION` | AWS region the SES domain identity is verified in -- must match exactly, SES identities are per-region |
 | `SES_ACCESS_KEY_ID` | Access key for the IAM user scoped to SES sending. Named `SES_*` (not `AWS_*`) so it's never picked up by boto3's ambient `AWS_ACCESS_KEY_ID` credential discovery and can't be confused with any other AWS-shaped credentials in this project (see `R2_*` below, same reasoning) |
 | `SES_SECRET_ACCESS_KEY` | Secret key for the same IAM user |
 | `SES_FROM_ADDRESS` | Verified sending address, e.g. `certificates@gdg-q.com` -- domain verification covers any address on the domain |
+
+Sending goes through Gmail SMTP by default (`APP_PASSWORD_*`), with AWS SES available as an admin-selected optional path per send -- see `provider` on the request models in `app/routers/emails.py` and `app/routers/blasts.py`.
 
 ## Infisical Dashboard
 

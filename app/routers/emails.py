@@ -3,8 +3,9 @@ import tempfile
 
 import httpx
 from fastapi import APIRouter, HTTPException, status
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, model_validator
 
+from app.config import EmailLogsFromAddress, EmailProvider
 from app.services.certificate import (
     CertificateLanguage,
     MembersGender,
@@ -30,7 +31,18 @@ class MemberInfo(BaseModel):
     gender: MembersGender
 
 
-class CertificateRequest(BaseModel):
+class ProviderRequest(BaseModel):
+    provider: EmailProvider = EmailProvider.GOOGLE
+    from_address: EmailLogsFromAddress | None = None
+
+    @model_validator(mode="after")
+    def validate_provider(self) -> "ProviderRequest":
+        if self.provider == EmailProvider.GOOGLE and self.from_address is None:
+            raise ValueError("from_address is required when provider is 'google'")
+        return self
+
+
+class CertificateRequest(ProviderRequest):
     language: CertificateLanguage
     event: EventInfo
     member: MemberInfo
@@ -58,6 +70,8 @@ def send_certificate(request: CertificateRequest):
             )
 
             send_certificate_email(
+                provider=request.provider,
+                from_address=request.from_address,
                 recipient=request.member.email,
                 name=request.member.name,
                 event_name=request.event.name,
@@ -81,7 +95,7 @@ class CustomEmailAttachment(BaseModel):
     content_type: str | None = None
 
 
-class CustomEmailRequest(BaseModel):
+class CustomEmailRequest(ProviderRequest):
     recipient_email: EmailStr
     subject: str
     html_content: str
@@ -128,6 +142,8 @@ def send_custom_email(request: CustomEmailRequest):
                     attachments_data.append((response.content, attachment.filename, content_type))
 
             send_custom_html_email(
+                provider=request.provider,
+                from_address=request.from_address,
                 recipient=request.recipient_email,
                 subject=request.subject,
                 html_content=request.html_content,
@@ -145,7 +161,7 @@ def send_custom_email(request: CustomEmailRequest):
         ) from None
 
 
-class DirectEmailRequest(BaseModel):
+class DirectEmailRequest(ProviderRequest):
     recipient_email: EmailStr
     subject: str
     html_content: str
@@ -166,6 +182,8 @@ def send_direct_email(request: DirectEmailRequest):
                 attachments_data.append((response.content, attachment.filename, content_type))
 
         send_custom_html_email(
+            provider=request.provider,
+            from_address=request.from_address,
             recipient=request.recipient_email,
             subject=request.subject,
             html_content=request.html_content,
