@@ -1,45 +1,66 @@
 import logging
-import smtplib
 import time
+from concurrent.futures import ThreadPoolExecutor
 from email.message import EmailMessage
 
+import boto3
+from botocore.exceptions import ClientError
+
 from app.config import (
-    APP_PASSWORDS,
-    EMAIL_DELAY,
+    AWS_REGION,
     EMAIL_TEMPLATE_PATH,
     MAX_RETRIES,
-    SMTP_HOST,
-    SMTP_PORT,
-    EmailLogsFromAddress,
+    RETRY_BASE_DELAY,
+    SEND_CONCURRENCY,
+    SES_ACCESS_KEY_ID,
+    SES_FROM_ADDRESS,
+    SES_SECRET_ACCESS_KEY,
 )
 
 logger = logging.getLogger(__name__)
 
+# Throttling/quota errors are worth retrying with backoff; anything else (bad
+# address, message rejected) will just fail again, so don't burn retries on it.
+RETRYABLE_SES_ERRORS = {"Throttling", "TooManyRequestsException", "ServiceUnavailable"}
 
-def _send_with_retry(msg: EmailMessage, from_address: EmailLogsFromAddress, *, log_label: str) -> None:
-    sender_email = from_address.value
-    app_password = APP_PASSWORDS[from_address]
+# SES hard-caps recipients (To+Cc+Bcc) per raw message at 50, unlike Gmail's BCC
+# headroom -- a blast has to be split into chunks, not sent as one giant BCC.
+SES_MAX_RECIPIENTS_PER_MESSAGE = 50
 
+
+def _chunk(items: list[str], size: int) -> list[list[str]]:
+    return [items[i : i + size] for i in range(0, len(items), size)]
+
+
+def _ses_client():
+    return boto3.client(
+        "ses",
+        region_name=AWS_REGION,
+        aws_access_key_id=SES_ACCESS_KEY_ID,
+        aws_secret_access_key=SES_SECRET_ACCESS_KEY,
+    )
+
+
+def _send_with_retry(msg: EmailMessage, *, log_label: str) -> None:
+    client = _ses_client()
     last_error = "Unknown error"
     for attempt in range(MAX_RETRIES):
         try:
-            with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as smtp:
-                smtp.starttls()
-                smtp.login(sender_email, app_password)
-                smtp.send_message(msg)
-                logger.info(f"{log_label} sent")
-                return
-        except Exception as e:
+            client.send_raw_email(RawMessage={"Data": msg.as_bytes()})
+            logger.info(f"{log_label} sent")
+            return
+        except ClientError as e:
+            code = e.response.get("Error", {}).get("Code", "")
             last_error = str(e)
             logger.warning(f"{log_label} attempt {attempt + 1}/{MAX_RETRIES} failed: {last_error}")
-            if attempt < MAX_RETRIES - 1:
-                time.sleep(EMAIL_DELAY)
+            if code not in RETRYABLE_SES_ERRORS or attempt >= MAX_RETRIES - 1:
+                raise RuntimeError(f"{log_label} failed: {last_error}") from e
+            time.sleep(RETRY_BASE_DELAY * (2**attempt))
 
     raise RuntimeError(f"{log_label} failed after {MAX_RETRIES} attempts: {last_error}")
 
 
 def send_certificate_email(
-    from_address: EmailLogsFromAddress,
     recipient: str,
     name: str,
     event_name: str,
@@ -55,7 +76,7 @@ def send_certificate_email(
     body = body.replace("[Event Name]", event_name)
 
     msg = EmailMessage()
-    msg["From"] = from_address.value
+    msg["From"] = SES_FROM_ADDRESS
     msg["To"] = recipient
     msg["Subject"] = subject
     msg.set_content("This email contains HTML. Please view it in an HTML-compatible client.")
@@ -67,21 +88,20 @@ def send_certificate_email(
         filename=f"{event_name} شهادة حضور.png",
     )
 
-    logger.info(f"Sending email from {from_address.value} to {recipient}")
-    _send_with_retry(msg, from_address, log_label=f"Email to {recipient}")
+    logger.info(f"Sending email from {SES_FROM_ADDRESS} to {recipient}")
+    _send_with_retry(msg, log_label=f"Email to {recipient}")
 
 
-def send_blast_email(
-    from_address: EmailLogsFromAddress,
+def _build_blast_message(
     recipients: list[str],
     html_content: str,
     subject: str,
-    preview_text: str | None = None,
-    attachments: list[tuple[bytes, str, str]] | None = None,
-) -> None:
+    preview_text: str | None,
+    attachments: list[tuple[bytes, str, str]] | None,
+) -> EmailMessage:
     msg = EmailMessage()
-    msg["From"] = from_address.value
-    msg["To"] = from_address.value
+    msg["From"] = SES_FROM_ADDRESS
+    msg["To"] = SES_FROM_ADDRESS
     msg["Subject"] = subject
     msg["Bcc"] = ", ".join(recipients)
 
@@ -99,20 +119,47 @@ def send_blast_email(
             subtype=subtype or "octet-stream",
             filename=filename,
         )
+    return msg
 
-    logger.info(f"Sending blast email to {len(recipients)} recipients via BCC")
-    _send_with_retry(msg, from_address, log_label=f"Blast email to {len(recipients)} recipients")
+
+def send_blast_email(
+    recipients: list[str],
+    html_content: str,
+    subject: str,
+    preview_text: str | None = None,
+    attachments: list[tuple[bytes, str, str]] | None = None,
+) -> None:
+    if not recipients:
+        logger.info("Skipping blast email: no recipients")
+        return
+
+    chunks = _chunk(recipients, SES_MAX_RECIPIENTS_PER_MESSAGE)
+    logger.info(
+        f"Sending blast email to {len(recipients)} recipients via BCC "
+        f"({len(chunks)} chunk(s) of <= {SES_MAX_RECIPIENTS_PER_MESSAGE})"
+    )
+
+    def _send_chunk(chunk: list[str]) -> None:
+        msg = _build_blast_message(chunk, html_content, subject, preview_text, attachments)
+        _send_with_retry(msg, log_label=f"Blast chunk to {len(chunk)} recipients")
+
+    if len(chunks) == 1:
+        _send_chunk(chunks[0])
+        return
+
+    with ThreadPoolExecutor(max_workers=min(SEND_CONCURRENCY, len(chunks))) as pool:
+        # list() forces every future to be awaited so a chunk failure raises here.
+        list(pool.map(_send_chunk, chunks))
 
 
 def send_custom_html_email(
-    from_address: EmailLogsFromAddress,
     recipient: str,
     subject: str,
     html_content: str,
     attachments: list[tuple[bytes, str, str]] | None = None,
 ) -> None:
     msg = EmailMessage()
-    msg["From"] = from_address.value
+    msg["From"] = SES_FROM_ADDRESS
     msg["To"] = recipient
     msg["Subject"] = subject
     msg.set_content("This email contains HTML. Please view it in an HTML-compatible client.")
@@ -127,5 +174,5 @@ def send_custom_html_email(
             filename=filename,
         )
 
-    logger.info(f"Sending custom email from {from_address.value} to {recipient}")
-    _send_with_retry(msg, from_address, log_label=f"Custom email to {recipient}")
+    logger.info(f"Sending custom email from {SES_FROM_ADDRESS} to {recipient}")
+    _send_with_retry(msg, log_label=f"Custom email to {recipient}")

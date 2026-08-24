@@ -5,7 +5,6 @@ import httpx
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, EmailStr
 
-from app.config import EmailLogsFromAddress
 from app.services.certificate import (
     CertificateLanguage,
     MembersGender,
@@ -32,7 +31,6 @@ class MemberInfo(BaseModel):
 
 
 class CertificateRequest(BaseModel):
-    from_address: EmailLogsFromAddress
     language: CertificateLanguage
     event: EventInfo
     member: MemberInfo
@@ -60,7 +58,6 @@ def send_certificate(request: CertificateRequest):
             )
 
             send_certificate_email(
-                from_address=request.from_address,
                 recipient=request.member.email,
                 name=request.member.name,
                 event_name=request.event.name,
@@ -85,7 +82,6 @@ class CustomEmailAttachment(BaseModel):
 
 
 class CustomEmailRequest(BaseModel):
-    from_address: EmailLogsFromAddress
     recipient_email: EmailStr
     subject: str
     html_content: str
@@ -132,7 +128,6 @@ def send_custom_email(request: CustomEmailRequest):
                     attachments_data.append((response.content, attachment.filename, content_type))
 
             send_custom_html_email(
-                from_address=request.from_address,
                 recipient=request.recipient_email,
                 subject=request.subject,
                 html_content=request.html_content,

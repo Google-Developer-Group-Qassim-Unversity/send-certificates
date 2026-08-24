@@ -57,9 +57,11 @@ sudo apt-get update && sudo apt-get install -y infisical
 Create a `.env.local` file in the project root:
 
 ```env
-# Override app passwords for local development
-APP_PASSWORD_KERNELTICS=your_password_here
-APP_PASSWORD_GDG_QASSIM=your_password_here
+# Override AWS/SES config for local development
+AWS_REGION=eu-north-1
+SES_ACCESS_KEY_ID=your_access_key_id
+SES_SECRET_ACCESS_KEY=your_secret_access_key
+SES_FROM_ADDRESS=certificates@gdg-q.com
 ```
 
 ## Secrets
@@ -68,8 +70,10 @@ The following secrets are managed in Infisical under the path `/emails-backend`:
 
 | Variable | Description |
 | --- | --- |
-| `APP_PASSWORD_KERNELTICS` | Gmail app password for info@kerneltics.com |
-| `APP_PASSWORD_GDG_QASSIM` | Gmail app password for gdg.qu1@gmail.com |
+| `AWS_REGION` | AWS region the SES domain identity is verified in -- must match exactly, SES identities are per-region |
+| `SES_ACCESS_KEY_ID` | Access key for the IAM user scoped to SES sending. Named `SES_*` (not `AWS_*`) so it's never picked up by boto3's ambient `AWS_ACCESS_KEY_ID` credential discovery and can't be confused with any other AWS-shaped credentials in this project (see `R2_*` below, same reasoning) |
+| `SES_SECRET_ACCESS_KEY` | Secret key for the same IAM user |
+| `SES_FROM_ADDRESS` | Verified sending address, e.g. `certificates@gdg-q.com` -- domain verification covers any address on the domain |
 
 ## Infisical Dashboard
 
