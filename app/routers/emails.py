@@ -143,3 +143,41 @@ def send_custom_email(request: CustomEmailRequest):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e),
         ) from None
+
+
+class DirectEmailRequest(BaseModel):
+    recipient_email: EmailStr
+    subject: str
+    html_content: str
+    attachments: list[CustomEmailAttachment] = []
+
+
+@router.post("/direct", status_code=status.HTTP_200_OK)
+def send_direct_email(request: DirectEmailRequest):
+    try:
+        attachments_data: list[tuple[bytes, str, str]] = []
+        with httpx.Client(timeout=30.0) as client:
+            for attachment in request.attachments:
+                response = client.get(attachment.url)
+                response.raise_for_status()
+                content_type = attachment.content_type or response.headers.get(
+                    "content-type", "application/octet-stream"
+                )
+                attachments_data.append((response.content, attachment.filename, content_type))
+
+        send_custom_html_email(
+            recipient=request.recipient_email,
+            subject=request.subject,
+            html_content=request.html_content,
+            attachments=attachments_data,
+        )
+
+        return {"status": "sent", "email": request.recipient_email}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Direct email request failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        ) from None
